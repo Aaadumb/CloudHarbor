@@ -17,4 +17,13 @@ namespace account::mail{
         }
         return true;
     }
+    bool CheckMail(const std::string& mail){
+        if(mail.empty() || mail.length()>254)return false;
+        static const std::regex re(
+            R"(^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@)"
+            R"([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)"
+            R"((\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$)");
+        if (!std::regex_match(mail, re)) return false;
+        return true;
+    }
 }
