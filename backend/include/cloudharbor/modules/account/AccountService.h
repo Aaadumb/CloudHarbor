@@ -7,6 +7,7 @@
 
 #include "UserRepository.h"
 #include "SessionStore.h"
+#include "VerificationCodeStore.h"
 using namespace account;
 using namespace drogon;
 namespace account{

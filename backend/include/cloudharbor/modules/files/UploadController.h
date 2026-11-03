@@ -1,6 +1,7 @@
 #pragma once
 #include <drogon/drogon.h>
 #include <functional>
+#include "UploadService.h"
 using namespace drogon;
 class UploadController:public HttpController<UploadController>{
 public:
@@ -12,6 +13,7 @@ public:
         ADD_METHOD_TO(UploadController::askMergeUpload,"/files/upload/complete",Post);
         ADD_METHOD_TO(UploadController::askCancelUpload,"/files/upload/cancel",Post);
     METHOD_LIST_END
+private:
     Task<void> uploadFile       (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> initChunkUpload  (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> uploadFileByChunk(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);

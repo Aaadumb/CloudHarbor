@@ -3,6 +3,7 @@
 #include <drogon/drogon.h>
 #include <json/json.h>
 #include <optional>
+#include "FileRepository.h"
 using namespace drogon;
 
 namespace file{

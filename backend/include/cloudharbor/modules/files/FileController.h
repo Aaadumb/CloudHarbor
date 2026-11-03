@@ -12,6 +12,7 @@ public:
         ADD_METHOD_TO(FileController::deleteEntry,"/files/delete",Delete);
         ADD_METHOD_TO(FileController::downloadFile,"/files/download",Get);
     METHOD_LIST_END
+private:
     Task<void> queryDirectory(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> createDirectory(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> deleteEntry(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
