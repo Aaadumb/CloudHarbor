@@ -38,7 +38,9 @@ namespace account::mail{
 
             // 入队命令
             // redis没有回滚机制 执行事务 中途有个别执行失败 整体返回false 然后清理key
-            co_await trans->execCommandCoro("hmset %s " CH_VERIFICATION_CODE_FIELD " %s " CH_VERIFICATION_ATTEMPTS_FIELD " %d",codeKey.c_str(),code.c_str(),5);
+            co_await trans->execCommandCoro(
+                "hmset %s code %s remaining_attempts %d",codeKey.c_str(),code.c_str(),5
+            );
             co_await trans->execCommandCoro("expire %s %d",codeKey.c_str(),5*60);
             co_await trans->execCommandCoro("set %s 1 NX EX %d",coolKey.c_str(),60);
 
@@ -49,11 +51,11 @@ namespace account::mail{
                 // 验证码写入、有效期和冷却记录都成功才算绑定完成
                 success=replies.size()==3
                     && replies[0].type()==nosql::RedisResultType::kStatus
-                    && replies[0].asString()==CH_VERIFICATION_OK
+                    && replies[0].asString()=="OK"
                     && replies[1].type()==nosql::RedisResultType::kInteger
                     && replies[1].asInteger()==1
                     && replies[2].type()==nosql::RedisResultType::kStatus
-                    && replies[2].asString()==CH_VERIFICATION_OK;
+                    && replies[2].asString()=="OK";
             }
             if(!success){
                 LOG_ERROR << "Unexpected transaction result when binding registration code";
@@ -88,7 +90,7 @@ namespace account::mail{
         bool res=true;
         auto redis=app().getRedisClient();
         try{
-            auto result=co_await redis->execCommandCoro(CH_REDIS_EXISTS_COMMAND,key.c_str());
+            auto result=co_await redis->execCommandCoro("exists %s",key.c_str());
             if(result.type()!=nosql::RedisResultType::kInteger){
                 res=false;
             }else{
@@ -97,7 +99,7 @@ namespace account::mail{
         }catch(const nosql::RedisException& e){
             // res也设置为false 服务端错误导致的无法查验 理应阻止下一步进行
             res=false;
-            LOG_ERROR<<CH_REDIS_ERROR_PREFIX " "<<e.what();
+            LOG_ERROR<<"redis error: "<<e.what();
         }
         co_return res;
     }
@@ -106,7 +108,7 @@ namespace account::mail{
         auto redis=app().getRedisClient();
         bool res=true;
         try{
-            auto result=co_await redis->execCommandCoro(CH_REDIS_EXISTS_COMMAND,key.c_str());
+            auto result=co_await redis->execCommandCoro("exists %s",key.c_str());
             if(result.type()!=nosql::RedisResultType::kInteger){
                 // 无法判断就判定的情况 应该阻止未知操作 讲结果设置为true;
                 res=true;
@@ -115,7 +117,7 @@ namespace account::mail{
             }
         }catch(const nosql::RedisException&e){
             res=true;
-            LOG_ERROR<<CH_REDIS_ERROR_PREFIX " "<<e.what();
+            LOG_ERROR<<"redis error: "<<e.what();
         }
         co_return res;
     }
@@ -123,7 +125,7 @@ namespace account::mail{
         // 原子完成比较、错误扣次和正确消费，只操作验证码key，保留冷却记录
         // 脚本返回：-1 不存在或过期，0 验证失败，1 验证成功并已消费
         static constexpr char consumeScript[]=R"lua(
-            local values = redis.call('HMGET', KEYS[1], ARGV[2], ARGV[3])
+            local values = redis.call('HMGET', KEYS[1], 'code', 'remaining_attempts')
             if not values[1] then
                 return -1
             end
@@ -142,7 +144,7 @@ namespace account::mail{
                 return 1
             end
 
-            remaining = redis.call('HINCRBY', KEYS[1], ARGV[3], -1)
+            remaining = redis.call('HINCRBY', KEYS[1], 'remaining_attempts', -1)
             if remaining <= 0 then
                 redis.call('DEL', KEYS[1])
             end
@@ -151,21 +153,21 @@ namespace account::mail{
         std::string key=CH_REGISTER_CODE_KEY_PREFIX+mail;
         auto redis=app().getRedisClient();
         Json::Value json;
-        json[CH_VERIFICATION_VALID_FIELD]=false;
-        json[CH_VERIFICATION_CODE_FIELD]=CH_VERIFICATION_UNKNOWN_ERROR;
+        json["valid"]=false;
+        json["code"]="UNKNOWN_ERROR";
         try{
             auto result=co_await redis->execCommandCoro(
-                "eval %s 1 %s %s %s %s",consumeScript,key.c_str(),code.c_str(),
-                CH_VERIFICATION_CODE_FIELD,CH_VERIFICATION_ATTEMPTS_FIELD);
+                "eval %s 1 %s %s",consumeScript,key.c_str(),code.c_str()
+            );
             if(result.type()==nosql::RedisResultType::kInteger){
                 auto status=result.asInteger();
                 if(status==1){
-                    json[CH_VERIFICATION_VALID_FIELD]=true;
-                    json[CH_VERIFICATION_CODE_FIELD]=CH_VERIFICATION_OK;
+                    json["valid"]=true;
+                    json["code"]="OK";
                 }else if(status==0){
-                    json[CH_VERIFICATION_CODE_FIELD]=CH_VERIFICATION_INVALID;
+                    json["code"]="VERIFICATION_INVALID";
                 }else if(status==-1){
-                    json[CH_VERIFICATION_CODE_FIELD]=CH_VERIFICATION_EXPIRED;
+                    json["code"]="VERIFICATION_EXPIRED";
                 }else{
                     LOG_ERROR << "Unexpected registration code validation status";
                 }
@@ -174,7 +176,7 @@ namespace account::mail{
             }
         }catch(const nosql::RedisException& e){
             // Redis故障与验证码业务失败通过不同的code区分
-            LOG_ERROR<<CH_REDIS_ERROR_PREFIX " "<<e.what();
+            LOG_ERROR<<"redis error: "<<e.what();
         }
         co_return json;
     }

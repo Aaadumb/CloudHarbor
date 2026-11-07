@@ -6,15 +6,6 @@
 #include <cstdint>
 
 #define SS_KEY "ch:session:"
-#define SS_UID "userId"
-#define SS_MODE "mode"
-#define SS_TIME "createTime"
-#define SS_ERROR "error"
-#define SS_NOEXIST "NOEXISTS"
-#define SS_UNKNOWN "UNKNOWNERROR"
-#define SS_REDISERR "REDISERROR"
-#define SS_OK "OK"
-#define SS_LOG "redis error:"
 
 using namespace drogon;
 namespace account{

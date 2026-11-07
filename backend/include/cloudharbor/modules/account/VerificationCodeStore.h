@@ -6,15 +6,6 @@
 
 #define CH_REGISTER_CODE_KEY_PREFIX "ch:mail_code:register:"
 #define CH_REGISTER_COOLDOWN_KEY_PREFIX "ch:mail_cooldown:register:"
-#define CH_VERIFICATION_CODE_FIELD "code"
-#define CH_VERIFICATION_ATTEMPTS_FIELD "remaining_attempts"
-#define CH_VERIFICATION_VALID_FIELD "valid"
-#define CH_VERIFICATION_EXPIRED "VERIFICATION_EXPIRED"
-#define CH_VERIFICATION_INVALID "VERIFICATION_INVALID"
-#define CH_VERIFICATION_UNKNOWN_ERROR "UNKNOWN_ERROR"
-#define CH_VERIFICATION_OK "OK"
-#define CH_REDIS_EXISTS_COMMAND "exists %s"
-#define CH_REDIS_ERROR_PREFIX "redis error:"
 
 using namespace drogon;
 namespace account{
