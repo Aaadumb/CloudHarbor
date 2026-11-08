@@ -3,6 +3,7 @@
 #include <array>
 #include <cerrno>
 #include <charconv>
+#include <type_traits>
 
 namespace {
     bool IsUploadId(const std::string& uploadId){
@@ -12,6 +13,96 @@ namespace {
 
     std::string TaskPath(const std::string& uploadId){
         return IsUploadId(uploadId) ? UTS_PATH_ROOT+uploadId : std::string{};
+    }
+
+    const fs::path kOrdinaryRoot=fs::path(UTS_PATH_ROOT)/"ordinary";
+    constexpr char kOrdinaryFilename[]="ordinary.tmp";
+    constexpr int kOrdinaryDirectoryAttempts=3;
+
+    template<class Work>
+    class OrdinaryFileAwaiter:public CallbackAwaiter<std::invoke_result_t<Work>>{
+    public:
+        explicit OrdinaryFileAwaiter(Work work):work(std::move(work)){}
+
+        bool await_suspend(std::coroutine_handle<> handle){
+            auto* loop=trantor::EventLoop::getEventLoopOfCurrentThread();
+            if(ThreadPool::getInstance().enqueue([this,handle,loop]{
+                std::invoke_result_t<Work> result{};
+                std::exception_ptr error;
+                try{
+                    result=work();
+                }catch(...){
+                    error=std::current_exception();
+                }
+                loop->queueInLoop([this,handle,error,result=std::move(result)]() mutable{
+                    if(error){
+                        this->setException(error);
+                    }else{
+                        this->setValue(std::move(result));
+                    }
+                    handle.resume();
+                });
+            }))return true;
+            this->setValue({});
+            return false;
+        }
+
+    private:
+        Work work;
+    };
+
+    bool RemoveOrdinaryPath(const fs::path& directory,const fs::path& path){
+        std::error_code ec;
+        const auto rootStatus=fs::symlink_status(kOrdinaryRoot,ec);
+        if(rootStatus.type()==fs::file_type::not_found)return true;
+        if(ec || !fs::is_directory(rootStatus))return false;
+
+        const auto status=fs::symlink_status(directory,ec);
+        if(status.type()==fs::file_type::not_found)return true;
+        if(ec || !fs::is_directory(status))return false;
+
+        fs::remove(path,ec);
+        if(!ec)fs::remove(directory,ec);
+        if(ec)LOG_ERROR<<"remove ordinary upload error:"<<ec.message();
+        return !ec;
+    }
+
+    std::string WriteOrdinaryFile(const HttpFile& file){
+        std::error_code ec;
+        fs::create_directories(kOrdinaryRoot,ec);
+        if(ec || !fs::is_directory(fs::symlink_status(kOrdinaryRoot,ec)))return {};
+
+        for(int attempt=0;attempt<kOrdinaryDirectoryAttempts;++attempt){
+            const auto id=upload::chunk::CreateUploadId();
+            if(id.empty())return {};
+            const auto directory=kOrdinaryRoot/id;
+            const auto path=directory/kOrdinaryFilename;
+            auto tempPath=path.string();
+            if(!fs::create_directory(directory,ec)){
+                if(!ec || ec==std::errc::file_exists)continue;
+                LOG_ERROR<<"create ordinary upload directory error:"<<ec.message();
+                return {};
+            }
+
+            try{
+                std::ofstream output(path,std::ios::binary);
+                if(output){
+                    const auto content=file.fileContent();
+                    if(!content.empty()){
+                        output.write(content.data(),static_cast<std::streamsize>(content.size()));
+                    }
+                    output.close();
+                    if(output)return tempPath;
+                }
+            }catch(...){
+                RemoveOrdinaryPath(directory,path);
+                throw;
+            }
+            LOG_ERROR<<"write ordinary upload file error:"<<tempPath;
+            RemoveOrdinaryPath(directory,path);
+            return {};
+        }
+        return {};
     }
 
     constexpr size_t kCopyBufferSize=64*1024;
@@ -27,28 +118,50 @@ namespace {
     }
 }
 
+namespace upload::ordinary{
+    Task<std::string> SaveOrdinaryFile(HttpFile file){
+        OrdinaryFileAwaiter awaiter{[file=std::move(file)]{
+            return WriteOrdinaryFile(file);
+        }};
+        co_return co_await awaiter;
+    }
+
+    Task<bool> RemoveOrdinaryFile(std::string tempPath){
+        OrdinaryFileAwaiter awaiter{[tempPath=std::move(tempPath)]{
+            const fs::path path(tempPath);
+            const auto id=path.parent_path().filename().string();
+            if(!IsUploadId(id))return false;
+            const auto directory=kOrdinaryRoot/id;
+            if(tempPath!=(directory/kOrdinaryFilename).string())return false;
+            return RemoveOrdinaryPath(directory,path);
+        }};
+        co_return co_await awaiter;
+    }
+}
+
 CreateTaskDirectoryAwaiter::CreateTaskDirectoryAwaiter(const std::string&uploadId):
     path(TaskPath(uploadId)){};
 
 
-bool CreateTaskDirectoryAwaiter::createTaskDirectory(){
-    if(path.empty())return false;
+TaskDirectoryResult CreateTaskDirectoryAwaiter::createTaskDirectory(){
+    if(path.empty())return TaskDirectoryResult::Failed;
     std::error_code ec;
     fs::create_directories(UTS_PATH_ROOT,ec);
     if(ec){
         LOG_ERROR<<"create directories error:"<<ec.message();
-        return false;
+        return TaskDirectoryResult::Failed;
     }
     // 只有实际创建了任务目录，才允许继续初始化或回收它。
     if(!fs::create_directory(path,ec)){
-        if(ec)LOG_ERROR<<"create task directory error:"<<ec.message();
-        return false;
+        if(!ec || ec==std::errc::file_exists)return TaskDirectoryResult::Exists;
+        LOG_ERROR<<"create task directory error:"<<ec.message();
+        return TaskDirectoryResult::Failed;
     }
-    if(fs::create_directory(path+"/chunks",ec))return true;
+    if(fs::create_directory(path+"/chunks",ec))return TaskDirectoryResult::Created;
     if(ec)LOG_ERROR<<"create chunks directory error:"<<ec.message();
     fs::remove(path,ec);
     if(ec)LOG_ERROR<<"remove empty task directory error:"<<ec.message();
-    return false;
+    return TaskDirectoryResult::Failed;
 }
 void CreateTaskDirectoryAwaiter::await_suspend(std::coroutine_handle<> handle){
     // 把任务交给线程池异步完成即可
@@ -56,7 +169,7 @@ void CreateTaskDirectoryAwaiter::await_suspend(std::coroutine_handle<> handle){
     bool success=ThreadPool::getInstance().enqueue([this,handle,loop]{
         // 执行函数操作
         std::exception_ptr error;
-        bool res=false;
+        auto res=TaskDirectoryResult::Failed;
         try{
             res=createTaskDirectory();
         }catch(...){
@@ -73,7 +186,7 @@ void CreateTaskDirectoryAwaiter::await_suspend(std::coroutine_handle<> handle){
         });
     });
     if(!success){
-        setValue(false);
+        setValue(TaskDirectoryResult::Failed);
         handle.resume();
     }
 }
@@ -225,7 +338,7 @@ void RemoveTaskDirectoryAwaiter::await_suspend(std::coroutine_handle<> handle){
     }
 }
 
-namespace upload::storage{
+namespace upload::chunk{
     std::string CreateUploadId(int n){
         if(n<=0)return {};
         constexpr char hex[]="0123456789abcdef";
@@ -245,13 +358,13 @@ namespace upload::storage{
         return res;
     }
     Task<bool> CreateTaskDirectory(const std::string& uploadId){
-        co_return co_await CreateTaskDirectoryAwaiter{uploadId};
+        co_return (co_await CreateTaskDirectoryAwaiter{uploadId})==TaskDirectoryResult::Created;
     }
-    Task<bool> SaveChunk(const std::string& uploadId,uint64_t index,const HttpFile&chunk){
-        if(!IsUploadId(uploadId) || index==0)co_return false;
+    Task<SaveChunkResult> SaveChunk(const std::string& uploadId,uint64_t index,const HttpFile&chunk){
+        if(!IsUploadId(uploadId) || index==0)co_return SaveChunkResult::StorageError;
         auto redis=app().getRedisClient();
-        if(!redis)co_return false;
-        if(!(co_await SaveChunkAwaiter{uploadId,index,chunk}))co_return false;
+        if(!redis)co_return SaveChunkResult::RedisError;
+        if(!(co_await SaveChunkAwaiter{uploadId,index,chunk}))co_return SaveChunkResult::StorageError;
 
         const auto taskKey=UTS_KEY+uploadId;
         const auto metaKey=taskKey+":meta";
@@ -265,10 +378,11 @@ namespace upload::storage{
             const auto result=co_await redis->execCommandCoro(
                 "EVAL %s 2 %s %s %s",recordChunk,metaKey.c_str(),chunksKey.c_str(),part.c_str()
             );
-            co_return result.type()==nosql::RedisResultType::kInteger && result.asInteger()==1;
+            if(result.type()!=nosql::RedisResultType::kInteger)co_return SaveChunkResult::RedisError;
+            co_return result.asInteger()==1 ? SaveChunkResult::Saved : SaveChunkResult::MissingTask;
         }catch(const nosql::RedisException& e){
             LOG_ERROR<<"redis error:"<<e.what();
-            co_return false;
+            co_return SaveChunkResult::RedisError;
         }
     }
     Task<std::string> MergeChunks(const std::string& uploadId,uint64_t totalChunkes,uint64_t expectedSize){
@@ -301,8 +415,9 @@ namespace upload::storage{
             json["error"]=UTS_REDIS_ERR;
             co_return json;
         }
-        if(!(co_await CreateTaskDirectory(uploadId))){
-            json["error"]="DIRECTORYCREATEERROR";
+        const auto directoryResult=co_await CreateTaskDirectoryAwaiter{uploadId};
+        if(directoryResult!=TaskDirectoryResult::Created){
+            json["error"]=directoryResult==TaskDirectoryResult::Exists ? UTS_ID_CONFLICT : "DIRECTORYCREATEERROR";
             co_return json;
         }
 
@@ -330,7 +445,7 @@ namespace upload::storage{
                     co_return json;
                 }
                 if(created==0){
-                    json["error"]="KEYEXISTS";
+                    json["error"]=UTS_ID_CONFLICT;
                     removeNewDirectory=true;
                 }
             }
@@ -368,7 +483,7 @@ namespace upload::storage{
                 "EVAL %s 2 %s %s",readTask,metaKey.c_str(),chunksKey.c_str()
             );
             if(result.isNil()){
-                json["error"]="NOEXISTS";
+                json["error"]=UTS_NO_TASK;
                 co_return json;
             }
             if(result.type()!=nosql::RedisResultType::kArray)co_return json;
@@ -377,6 +492,17 @@ namespace upload::storage{
             const auto fields=task[0].asArray();
             for(size_t i=0;i<fields.size();i+=2){
                 metadata[fields[i].asString()]=fields[i+1].asString();
+            }
+            for(const char* key:{"owner_id","parent_id","size","last_modified","chunk_size","total_chunks"}){
+                const auto value=metadata[key].asString();
+                uint64_t number=0;
+                const auto end=value.data()+value.size();
+                const auto [ptr,ec]=std::from_chars(value.data(),end,number);
+                if(ec!=std::errc{} || ptr!=end){
+                    LOG_ERROR<<"invalid upload metadata:"<<uploadId<<" "<<key;
+                    co_return json;
+                }
+                metadata[key]=Json::UInt64(number);
             }
 
             const auto members=task[1].asArray();
@@ -404,7 +530,44 @@ namespace upload::storage{
         co_return json;
     }
 
-    Task<Json::Value> RemoveTask(const std::string& uploadId){
+    Task<bool> MarkTaskFinalizing(const std::string& uploadId,const std::string& storageId){
+        if(!IsUploadId(uploadId) || storageId.empty())co_return false;
+        auto redis=app().getRedisClient();
+        if(!redis)co_return false;
+        const auto metaKey=UTS_KEY+uploadId+":meta";
+        constexpr char mark[]=
+            "if redis.call('EXISTS', KEYS[1]) == 0 or "
+            "redis.call('HEXISTS', KEYS[1], 'cleanup') == 1 then return 0 end "
+            "return redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[2])";
+        try{
+            const auto result=co_await redis->execCommandCoro(
+                "EVAL %s 1 %s %s %b",mark,metaKey.c_str(),UTS_FINALIZING_ID,storageId.data(),storageId.size());
+            co_return result.type()==nosql::RedisResultType::kInteger && result.asInteger()==1;
+        }catch(const nosql::RedisException& e){
+            LOG_ERROR<<"mark upload finalizing error:"<<uploadId<<" "<<e.what();
+            co_return false;
+        }
+    }
+
+    Task<bool> ClearTaskFinalizing(const std::string& uploadId,const std::string& storageId){
+        if(!IsUploadId(uploadId) || storageId.empty())co_return false;
+        auto redis=app().getRedisClient();
+        if(!redis)co_return false;
+        const auto metaKey=UTS_KEY+uploadId+":meta";
+        constexpr char clear[]=
+            "if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end "
+            "return redis.call('HDEL', KEYS[1], ARGV[1])";
+        try{
+            const auto result=co_await redis->execCommandCoro(
+                "EVAL %s 1 %s %s %b",clear,metaKey.c_str(),UTS_FINALIZING_ID,storageId.data(),storageId.size());
+            co_return result.type()==nosql::RedisResultType::kInteger && result.asInteger()==1;
+        }catch(const nosql::RedisException& e){
+            LOG_ERROR<<"clear upload finalizing error:"<<uploadId<<" "<<e.what();
+            co_return false;
+        }
+    }
+
+    Task<Json::Value> RemoveTask(const std::string& uploadId,std::string completedFileId){
         Json::Value json;
         json["status"]=false;
         if(!IsUploadId(uploadId)){
@@ -419,6 +582,22 @@ namespace upload::storage{
         const auto metaKey=taskKey+":meta";
         const auto chunksKey=taskKey+":chunks";
         try{
+            // 保留归属和清理状态，直到目录删除成功。重试时保留第一次的结果。
+            constexpr char markCleanup[]=
+                "if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end "
+                "if ARGV[1] == 'cancel' and redis.call('HEXISTS', KEYS[1], ARGV[2]) == 1 then return 0 end "
+                "redis.call('HSETNX', KEYS[1], 'cleanup', ARGV[1]) "
+                "return 1";
+            const auto marked=co_await redis->execCommandCoro(
+                "EVAL %s 1 %s %s %s",markCleanup,metaKey.c_str(),
+                completedFileId.empty() ? "cancel" : completedFileId.c_str(),UTS_FINALIZING_ID
+            );
+            if(marked.type()!=nosql::RedisResultType::kInteger || marked.asInteger()!=1)co_return json;
+
+            if(!(co_await RemoveTaskDirectory(uploadId))){
+                json["error"]="DIRECTORYCLEARERROR";
+                co_return json;
+            }
             co_await redis->execCommandCoro(
                 "DEL %s %s",metaKey.c_str(),chunksKey.c_str()
             );
@@ -427,10 +606,6 @@ namespace upload::storage{
             co_return json;
         }
 
-        if(!(co_await RemoveTaskDirectory(uploadId))){
-            json["error"]="DIRECTORYCLEARERROR";
-            co_return json;
-        }
         json["status"]=true;
         json.removeMember("error");
         co_return json;

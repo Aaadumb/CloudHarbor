@@ -121,6 +121,27 @@ namespace file::database{
         }
         co_return json;
     }
+    Task<Json::Value> FindFileByStorageId(uint64_t userId,const std::string& storageId){
+        auto db=app().getDbClient();
+        Json::Value json;
+        json[FR_ID]=-1;
+        try{
+            const auto result=co_await db->execSqlCoro(
+                "select id from file where owner=? and type=? "
+                "and cast(path as binary)=cast(? as binary) limit 1",
+                userId,FR_FILE,storageId);
+            if(result.empty()){
+                json[FR_ERROR]=FR_NO_ENTRY;
+            }else{
+                json[FR_ID]=result[0][FR_ID].as<uint64_t>();
+            }
+        }catch(const DrogonDbException& e){
+            LOG_ERROR<<FR_DB_LOG<<e.base().what();
+            json[FR_ERROR]=FR_DB_ERROR;
+        }
+        co_return json;
+    }
+
     Task<uint64_t> CreateRoot(const TransactionPtr&tx,uint64_t userId){
         // 成功返回inserId 失败返回-1 事务回滚由上层管理 注意这个-1实际上是UINT64_MAX
         uint64_t res=-1;
