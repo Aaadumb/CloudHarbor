@@ -1,5 +1,4 @@
 #include "ApiResponse.h"
-
 namespace response{
     HttpResponsePtr Success(Json::Value data,HttpStatusCode status,std::string message){
         Json::Value json;

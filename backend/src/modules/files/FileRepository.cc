@@ -14,6 +14,23 @@ namespace file::database{
             }
             return FR_DB_ERROR;
         }
+
+        Json::Value ReadChildEntry(const Row& row){
+            Json::Value entry;
+            entry[FR_ID]=row[FR_ID].as<uint64_t>();
+            entry[FR_NAME]=row[FR_NAME].as<std::string>();
+            entry[FR_TYPE]=row[FR_TYPE].as<std::string>();
+
+            if(row[FR_SIZE].isNull())entry[FR_SIZE]=-1;
+            else entry[FR_SIZE]=row[FR_SIZE].as<uint64_t>();
+
+            if(row[FR_LAST_MODIFY].isNull())entry[FR_LAST_MODIFY]=Json::nullValue;
+            else entry[FR_LAST_MODIFY]=row[FR_LAST_MODIFY].as<std::string>();
+
+            if(row[FR_PATH].isNull())entry[FR_PATH]=Json::nullValue;
+            else entry[FR_PATH]=row[FR_PATH].as<std::string>();
+            return entry;
+        }
     }
 
     Task<Json::Value> GetEntry(uint64_t userId,uint64_t entryId){
@@ -74,23 +91,91 @@ namespace file::database{
                 // 即使为空 执行到这里也算成功 server层应该提前检查 userId和parentId是否合理
                 json[FR_STATUS]=true;
                 json[FR_DATA]=Json::arrayValue;
-                for(auto res:result){
-                    Json::Value tmp;
-                    tmp[FR_ID]=res[FR_ID].as<uint64_t>();
-                    tmp[FR_NAME]=res[FR_NAME].as<std::string>();
-                    tmp[FR_TYPE]=res[FR_TYPE].as<std::string>();
-                    // 剩下的是可能为空的字段
-                    if(res[FR_SIZE].isNull())tmp[FR_SIZE]=-1;
-                    else tmp[FR_SIZE]=res[FR_SIZE].as<uint64_t>();
-
-                    if(res[FR_LAST_MODIFY].isNull())tmp[FR_LAST_MODIFY]=Json::nullValue;
-                    else tmp[FR_LAST_MODIFY]=res[FR_LAST_MODIFY].as<std::string>();
-
-                    if(res[FR_PATH].isNull())tmp[FR_PATH]=Json::nullValue;
-                    else tmp[FR_PATH]=res[FR_PATH].as<std::string>();
-                    json[FR_DATA].append(tmp);
+                for(const auto& row:result){
+                    json[FR_DATA].append(ReadChildEntry(row));
                 }
         }catch(const DrogonDbException&e){
+            LOG_ERROR<<FR_DB_LOG<<e.base().what();
+            json[FR_ERROR]=FR_DB_ERROR;
+        }
+        co_return json;
+    }
+    Task<Json::Value> ListChildren(uint64_t userId,const std::string& path){
+        Json::Value json;
+        json[FR_STATUS]=false;
+        if(path.empty() || path.front()!='/' || (path.size()>1 && path.back()=='/')){
+            json[FR_ERROR]=FR_NO_ENTRY;
+            co_return json;
+        }
+
+        // file.name 最多 255 个字符，utf8mb4 每个字符最多 4 个字节。
+        constexpr std::size_t maxSegmentBytes=255*4;
+        Json::Value segments(Json::arrayValue);
+        for(std::size_t start=1;start<path.size();){
+            auto end=path.find('/',start);
+            if(end==std::string::npos)end=path.size();
+            const auto segment=path.substr(start,end-start);
+            if(segment.empty() || segment=="." || segment==".." ||
+               segment.size()>maxSegmentBytes || segment.find('\0')!=std::string::npos){
+                json[FR_ERROR]=FR_NO_ENTRY;
+                co_return json;
+            }
+            segments.append(segment);
+            start=end+1;
+        }
+
+        Json::StreamWriterBuilder writer;
+        writer["indentation"]="";
+        const auto segmentsJson=Json::writeString(writer,segments);
+
+        try{
+            auto result=co_await app().getDbClient()->execSqlCoro(
+                R"sql(
+                    WITH RECURSIVE
+                    segments AS (
+                        SELECT s.pos,s.segment
+                        FROM JSON_TABLE(?, '$[*]' COLUMNS (
+                            pos FOR ORDINALITY,
+                            segment VARCHAR(1020) CHARACTER SET utf8mb4 PATH '$'
+                        )) AS s
+                    ),
+                    walk (id,owner,depth) AS (
+                        SELECT f.id,f.owner,0
+                        FROM `user` AS u
+                        JOIN `file` AS f ON f.id=u.root_id AND f.owner=u.id
+                        WHERE u.id=? AND f.type='folder' AND f.father IS NULL
+
+                        UNION ALL
+
+                        SELECT f.id,f.owner,s.pos
+                        FROM walk AS w
+                        JOIN segments AS s ON s.pos=w.depth+1
+                        JOIN `file` AS f ON f.father=w.id AND f.owner=w.owner
+                                        AND f.type='folder'
+                                        AND f.name=s.segment COLLATE utf8mb4_0900_bin
+                    ),
+                    target_dir AS (
+                        SELECT id,owner FROM walk
+                        WHERE depth=(SELECT COUNT(*) FROM segments)
+                    )
+                    SELECT child.id,child.name,child.type,child.size,child.last_modify,child.path
+                    FROM target_dir AS d
+                    LEFT JOIN `file` AS child ON child.father=d.id AND child.owner=d.owner
+                    ORDER BY (child.type='folder') DESC,child.name,child.id
+                )sql",
+                segmentsJson,userId);
+
+            if(result.empty()){
+                json[FR_ERROR]=FR_NO_ENTRY;
+                co_return json;
+            }
+            json[FR_STATUS]=true;
+            json[FR_DATA]=Json::arrayValue;
+            for(const auto& row:result){
+                // LEFT JOIN 在空目录时保留一行，子项字段均为 NULL。
+                if(!row[FR_ID].isNull())json[FR_DATA].append(ReadChildEntry(row));
+            }
+        }catch(const DrogonDbException& e){
             LOG_ERROR<<FR_DB_LOG<<e.base().what();
             json[FR_ERROR]=FR_DB_ERROR;
         }
@@ -308,6 +393,55 @@ namespace file::database{
             }
             json[FR_STATUS]=true;
             json[FR_DATA]=std::move(cleanup);
+        }catch(const DrogonDbException&e){
+            LOG_ERROR<<FR_DB_LOG<<e.base().what();
+            json[FR_ERROR]=FR_DB_ERROR;
+        }
+        co_return json;
+    }
+    Task<Json::Value> GetEntries(uint64_t userId,const std::vector<uint64_t>&entrIds){
+        auto db=app().getDbClient();
+        Json::Value json;
+        json[FR_STATUS]=false;
+        std::vector<uint64_t> params(entrIds);
+        params.push_back(userId);
+        auto placeholders=[](std::size_t count){
+            std::string str="?";
+            for(std::size_t i=1;i<count;i++){
+                str+=",?";
+            }
+            return str;
+        };
+        try{
+            // sql -> select id,name,type,father,size,last_modify,path from file where id in (?,?,?) and owner=?
+            auto result=co_await db->execSqlCoro(
+                "select id,name,type,father,size,last_modify,path "
+                "from file where id in ("+placeholders(entrIds.size())+") "
+                "and owner=?",
+                std::as_const(params)
+            );
+            json[FR_STATUS]=true;
+            json[FR_DATA]=Json::arrayValue;
+            for(auto res:result){
+                Json::Value tmp;
+                tmp[FR_ID]=res[FR_ID].as<uint64_t>();
+                tmp[FR_NAME]=res[FR_NAME].as<std::string>();
+                tmp[FR_TYPE]=res[FR_TYPE].as<std::string>();
+                // 数字字段用 -1 表示 SQL NULL，字符串字段用 JSON null。
+                if(res[FR_FATHER].isNull())tmp[FR_FATHER]=-1;
+                else tmp[FR_FATHER]=res[FR_FATHER].as<uint64_t>();
+
+                if(res[FR_SIZE].isNull())tmp[FR_SIZE]=-1;
+                else tmp[FR_SIZE]=res[FR_SIZE].as<uint64_t>();
+
+                if(res[FR_LAST_MODIFY].isNull())tmp[FR_LAST_MODIFY]=Json::nullValue;
+                else tmp[FR_LAST_MODIFY]=res[FR_LAST_MODIFY].as<std::string>();
+
+                if(res[FR_PATH].isNull())tmp[FR_PATH]=Json::nullValue;
+                else tmp[FR_PATH]=res[FR_PATH].as<std::string>();
+
+                json[FR_DATA].append(tmp);
+            }
         }catch(const DrogonDbException&e){
             LOG_ERROR<<FR_DB_LOG<<e.base().what();
             json[FR_ERROR]=FR_DB_ERROR;
