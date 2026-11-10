@@ -8,6 +8,10 @@
 #include "UserRepository.h"
 #include "SessionStore.h"
 #include "VerificationCodeStore.h"
+#include "ApiResponse.h"
+#include "PasswordHasher.h"
+#include "MailSender.h"
+#include "FileRepository.h"
 using namespace account;
 using namespace drogon;
 namespace account{

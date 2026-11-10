@@ -110,7 +110,7 @@ namespace account::mail{
         try{
             auto result=co_await redis->execCommandCoro("exists %s",key.c_str());
             if(result.type()!=nosql::RedisResultType::kInteger){
-                // 无法判断就判定的情况 应该阻止未知操作 讲结果设置为true;
+                // 无法判定的情况 应该阻止未知操作 讲结果设置为true;
                 res=true;
             }else{
                 res=result.asInteger();

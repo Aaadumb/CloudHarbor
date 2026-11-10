@@ -9,6 +9,8 @@ using namespace drogon;
 namespace response{
     HttpResponsePtr Success(Json::Value data,HttpStatusCode status=k200OK,std::string message="");
     HttpResponsePtr Failure(const HttpStatusCode& status,const std::string &code,const std::string& message);
-    void setLoginCookie(HttpResponsePtr& response,const std::string& sid,int64_t ttlSeconds);
+    HttpResponsePtr InternalError();
+    HttpResponsePtr ServiceUnavailable();
+    void setLoginCookie(HttpResponsePtr& response,const std::string& sid,bool persistent,int64_t ttlSeconds);
     void clearLoginCookie(HttpResponsePtr& response);
 }

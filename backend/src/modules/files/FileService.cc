@@ -1,6 +1,9 @@
 #include "FileService.h"
 #include <cctype>
 #include <utility>
+#define FS_MSG_FORBIDDEN "错误操作"
+#define FS_MSG_SERVICE_ERROR "服务错误"
+
 namespace{
     Json::Value MakePublicDirectoryData(const Json::Value& rows){
         Json::Value entries(Json::arrayValue);
@@ -61,15 +64,15 @@ namespace file::server{
                 Json::Value meta=co_await file::database::GetEntry(userId,*directoryId);
                 if(meta[FR_ID]==-1){
                     if(meta[FR_ERROR]==FR_DB_ERROR){
-                        co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                        co_return response::ServiceUnavailable();
                     }else{
-                        co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                        co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
                     }
                 }
                 // 根据id查询
                 Json::Value res=co_await file::database::ListChildren(userId,*directoryId);
                 if(!res[FR_STATUS].asBool()){
-                    co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                    co_return response::ServiceUnavailable();
                 }
                 co_return response::Success(MakePublicDirectoryData(res[FR_DATA]));
             }else{
@@ -78,7 +81,7 @@ namespace file::server{
                     if(res[FR_ERROR]==FR_NO_ENTRY){
                         co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"路径错误");
                     }else{
-                        co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                        co_return response::ServiceUnavailable();
                     }
                 }
                 co_return response::Success(MakePublicDirectoryData(res[FR_DATA]));
@@ -93,14 +96,14 @@ namespace file::server{
                 // 分析 fr_error
                 // meta[FR_ERROR]
                 if(meta[FR_ERROR]==FR_NO_ENTRY_OR_MISMATCH){
-                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
                 }else{
-                    co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                    co_return response::ServiceUnavailable();
                 }
             }
             // 有id 但是type是文件
             if(meta[FR_TYPE].asString()==FR_FILE){
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
             }
             // 是文件夹 并且身份验证通过 尝试写入
             Json::Value metadata;
@@ -112,7 +115,7 @@ namespace file::server{
             if(res[FR_ID]==-1){
                 // 第一种 数据库异常 第二种 重名冲突
                 if(res[FR_ERROR]==FR_DB_ERROR){
-                    co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                    co_return response::ServiceUnavailable();
                 }else{
                     co_return response::Failure(HttpStatusCode::k409Conflict,errors::NAME_CONFLICT,"重名文件冲突");
                 }
@@ -134,7 +137,7 @@ namespace file::server{
             }
             if(meta[FR_DATA].size()!=entryIds.size()){
                 // 说明有目录 异常
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
             }
             // 目前一切正常 只有一种可能情况 entryids 包含根目录 但是这个在删除的时候 会顺便排查 暂时不用管
             // 先删除文件 然后再物理删除 删除文件成功就返回给用户成功
@@ -143,12 +146,12 @@ namespace file::server{
             if(!result[FR_STATUS].asBool()){
                 // 删除失败了 就回滚
                 tx->rollback();
-                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务错误");
+                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,FS_MSG_SERVICE_ERROR);
             }
             bool success=co_await TransactionCommitAwaiter{tx};
             if(!success){
                 // 没成功
-                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务错误");
+                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,FS_MSG_SERVICE_ERROR);
             }
             // 删除成功
             Json::Value res;
@@ -172,13 +175,13 @@ namespace file::server{
             Json::Value meta=co_await file::database::GetEntry(userId,fileId);
             if(meta[FR_ID]==-1){
                 if(meta[FR_ERROR]==FR_DB_ERROR){
-                    co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务出错");
+                    co_return response::ServiceUnavailable();
                 }else{
-                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
                 }
             }
             if(meta[FR_TYPE]==FR_FOLDER){
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"错误操作");
+                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
             }
 
             // 权限正常 文件正常 根据path字段 转接给nginx
