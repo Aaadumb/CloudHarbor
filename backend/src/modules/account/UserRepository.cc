@@ -1,4 +1,5 @@
 #include "UserRepository.h"
+
 namespace account{
     namespace database{
         Task<Json::Value> FindByAuth(const std::string& auth){
@@ -32,10 +33,10 @@ namespace account{
             Json::Value json;
             json[UR_ID]=-1;
             try{
-                // sql -> select id,name,mail,root_id,avatar_path from user where id=?
+                // sql -> select id,name,mail,root_id,avatar_path,password from user where id=?
                 auto result=
                     co_await db->execSqlCoro(
-                        "select name,mail,root_id,avatar_path from user where id=?",
+                        "select name,mail,root_id,avatar_path,password from user where id=?",
                         userId);
                 if(result.empty()){
                     json[UR_ERROR]=UR_NO_USER;
@@ -45,6 +46,7 @@ namespace account{
                     json[UR_NAME]=res[UR_NAME].as<std::string>();
                     json[UR_MAIL]=res[UR_MAIL].as<std::string>();
                     json[UR_ROOT]=res[UR_ROOT].as<uint64_t>();
+                    json[UR_PWD]=res[UR_PWD].as<std::string>();
                     if(res[UR_AVATAR].isNull()){
                         json[UR_AVATAR]="default";
                     }else{
@@ -130,8 +132,19 @@ namespace account{
         Task<bool> ModifyName(uint64_t userId,const std::string& name){
             co_return co_await ModifyFiled(userId,UR_NAME,name);
         }
-        Task<bool> ModifyMail(uint64_t userId,const std::string&mail){
-            co_return co_await ModifyFiled(userId,UR_MAIL,mail);
+        Task<bool> ModifyMail(uint64_t userId,const std::string&oldmail,const std::string& newmail){
+                auto db=app().getDbClient();
+                bool res=false;
+                try{
+                    auto result=co_await db->execSqlCoro(
+                        "update user set mail=? where id=? and mail=?",
+                        newmail,userId,oldmail
+                    );
+                    res=result.affectedRows()==1;
+                }catch(const DrogonDbException&e){
+                    LOG_ERROR<<e.base().what();
+                }
+                co_return res;
         }
         Task<bool> ModifyPassword(uint64_t userId,const std::string& pwdhash){
             co_return co_await ModifyFiled(userId,UR_PWD,pwdhash);

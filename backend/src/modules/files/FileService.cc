@@ -1,10 +1,54 @@
 #include "FileService.h"
+#include <bit>
 #include <cctype>
+#include <string_view>
 #include <utility>
-#define FS_MSG_FORBIDDEN "错误操作"
 #define FS_MSG_SERVICE_ERROR "服务错误"
 
 namespace{
+    bool IsValidDirectoryName(std::string_view name){
+        if(name.empty() || name=="." || name==".."){
+            return false;
+        }
+
+        // file.name 是 utf8mb4 VARCHAR(255)，按 Unicode 码点计数。
+        constexpr std::size_t maxCharacters=255;
+        constexpr char32_t minCodePointByWidth[]={0,0,0x80,0x800,0x10000};
+        for(std::size_t offset=0,characters=0;offset<name.size();){
+            if(++characters>maxCharacters){
+                return false;
+            }
+            const auto first=static_cast<unsigned char>(name[offset]);
+            const int leadingOnes=std::countl_one(first);
+            if(leadingOnes==1 || leadingOnes>4){
+                return false;
+            }
+            const auto width=static_cast<std::size_t>(leadingOnes==0 ? 1 : leadingOnes);
+            if(width>name.size()-offset){
+                return false;
+            }
+
+            // 首字节去掉 UTF-8 前缀，每个续字节贡献六位。
+            char32_t codePoint=first & (0x7F >> leadingOnes);
+            for(std::size_t i=1;i<width;++i){
+                const auto byte=static_cast<unsigned char>(name[offset+i]);
+                if((byte & 0xC0)!=0x80){
+                    return false;
+                }
+                codePoint=(codePoint << 6) | (byte & 0x3F);
+            }
+            if(codePoint<minCodePointByWidth[width] || codePoint>0x10FFFF ||
+               (codePoint>=0xD800 && codePoint<=0xDFFF)){
+                return false;
+            }
+            if(codePoint=='/' || codePoint<0x20 || (codePoint>=0x7F && codePoint<=0x9F)){
+                return false;
+            }
+            offset+=width;
+        }
+        return true;
+    }
+
     Json::Value MakePublicDirectoryData(const Json::Value& rows){
         Json::Value entries(Json::arrayValue);
         for(const auto& row:rows){
@@ -66,8 +110,11 @@ namespace file::server{
                     if(meta[FR_ERROR]==FR_DB_ERROR){
                         co_return response::ServiceUnavailable();
                     }else{
-                        co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                        co_return response::Forbidden();
                     }
+                }
+                if(meta[FR_TYPE]!=FR_FOLDER){
+                    co_return response::ValidationError("目录无效");
                 }
                 // 根据id查询
                 Json::Value res=co_await file::database::ListChildren(userId,*directoryId);
@@ -79,7 +126,7 @@ namespace file::server{
                 Json::Value res=co_await file::database::ListChildren(userId,*path);
                 if(!res[FR_STATUS].asBool()){
                     if(res[FR_ERROR]==FR_NO_ENTRY){
-                        co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"路径错误");
+                        co_return response::ValidationError("路径错误");
                     }else{
                         co_return response::ServiceUnavailable();
                     }
@@ -90,20 +137,23 @@ namespace file::server{
 
 
         Task<HttpResponsePtr> CreateDirectory(uint64_t userId,uint64_t parentId,const std::string&name){
+            if(!IsValidDirectoryName(name)){
+                co_return response::ValidationError("目录名称无效");
+            }
             // 判断 parentid 跟 userid是否匹配 匹配之后 尝试直接创建 如果MySQL拒绝就返回错误即可
             Json::Value meta=co_await file::database::GetEntry(userId,parentId);
             if(meta[FR_ID]==-1){
                 // 分析 fr_error
                 // meta[FR_ERROR]
                 if(meta[FR_ERROR]==FR_NO_ENTRY_OR_MISMATCH){
-                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                    co_return response::Forbidden();
                 }else{
                     co_return response::ServiceUnavailable();
                 }
             }
             // 有id 但是type是文件
             if(meta[FR_TYPE].asString()==FR_FILE){
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                co_return response::Forbidden();
             }
             // 是文件夹 并且身份验证通过 尝试写入
             Json::Value metadata;
@@ -117,14 +167,14 @@ namespace file::server{
                 if(res[FR_ERROR]==FR_DB_ERROR){
                     co_return response::ServiceUnavailable();
                 }else{
-                    co_return response::Failure(HttpStatusCode::k409Conflict,errors::NAME_CONFLICT,"重名文件冲突");
+                    co_return response::NameConflict("重名文件冲突");
                 }
             }
             // 正常写入
             Json::Value req;
-            req["status"]=true;
+            req[FR_STATUS]=true;
             req[FR_ID]=res[FR_ID];
-            co_return response::Success(req);
+            co_return response::Success(req,HttpStatusCode::k201Created);
         }
         
         
@@ -133,11 +183,11 @@ namespace file::server{
             Json::Value meta=co_await file::database::GetEntries(userId,entryIds);
             if(!meta[FR_STATUS].asBool()){
                 //目前来看就一个地方出错 即数据库异常
-                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"服务异常");
+                co_return response::ServiceUnavailable("服务异常");
             }
             if(meta[FR_DATA].size()!=entryIds.size()){
                 // 说明有目录 异常
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                co_return response::Forbidden();
             }
             // 目前一切正常 只有一种可能情况 entryids 包含根目录 但是这个在删除的时候 会顺便排查 暂时不用管
             // 先删除文件 然后再物理删除 删除文件成功就返回给用户成功
@@ -146,16 +196,13 @@ namespace file::server{
             if(!result[FR_STATUS].asBool()){
                 // 删除失败了 就回滚
                 tx->rollback();
-                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,FS_MSG_SERVICE_ERROR);
+                co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
             }
             bool success=co_await TransactionCommitAwaiter{tx};
             if(!success){
                 // 没成功
-                co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,FS_MSG_SERVICE_ERROR);
+                co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
             }
-            // 删除成功
-            Json::Value res;
-            res["status"]=true;
             // 要进行物理操作
             for(auto file:result[FR_DATA]){
                 if(file[FR_TYPE]==FR_FOLDER)continue;
@@ -165,7 +212,7 @@ namespace file::server{
                     LOG_ERROR<<"delete file error:"<<file[FR_PATH].asString();
                 }
             }
-            co_return response::Success(res);
+            co_return response::Success();
 
         }
         
@@ -177,19 +224,18 @@ namespace file::server{
                 if(meta[FR_ERROR]==FR_DB_ERROR){
                     co_return response::ServiceUnavailable();
                 }else{
-                    co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                    co_return response::Forbidden();
                 }
             }
             if(meta[FR_TYPE]==FR_FOLDER){
-                co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,FS_MSG_FORBIDDEN);
+                co_return response::Forbidden();
             }
 
             // 权限正常 文件正常 根据path字段 转接给nginx
             auto resp=HttpResponse::newHttpResponse();
             resp->setStatusCode(HttpStatusCode::k200OK);
-            resp->addHeader("X-Accel-Redirect","/_download/"+meta[FR_PATH].asString());
+            response::SetStorageRedirect(resp,meta[FR_PATH].asString());
             resp->addHeader("Content-Disposition",MakeAttachmentDisposition(meta[FR_NAME].asString()));
-            resp->addHeader("Cache-Control","private, no-store");
 
             co_return resp;
         }

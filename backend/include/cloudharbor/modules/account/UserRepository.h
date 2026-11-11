@@ -33,7 +33,7 @@ namespace account{
                                     const std::string& passwordHash);
         Task<bool> BindRoot(const TransactionPtr& tx,uint64_t userId,uint64_t rootId);
         Task<bool> ModifyName(uint64_t userId,const std::string& name);
-        Task<bool> ModifyMail(uint64_t userId,const std::string& mail);
+        Task<bool> ModifyMail(uint64_t userId,const std::string& oldmail,const std::string& newmail);
         Task<bool> ModifyPassword(uint64_t userId,const std::string& passwordHash);
         Task<bool> ModifyAvatar(uint64_t userId,const std::string& avatarPath);
         Task<bool> ModifyFiled(uint64_t userId,const std::string filed,const std::string& content);

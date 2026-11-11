@@ -7,6 +7,12 @@
 #define AS_PWD_MIN "10"
 #define AS_PWD_MAX "20"
 
+#define AS_MSG_BAD_MAIL "邮箱格式错误"
+#define AS_MSG_NO_USER "用户不存在"
+#define AS_MSG_BAD_CODE "验证码失效或错误"
+#define AS_MSG_CONFLICT "重名冲突或服务出错"
+#define AS_MSG_AUTH_FAILED "校验失败"
+
 namespace account::server{
     namespace {
         std::string trimName(const std::string& name) {
@@ -84,13 +90,13 @@ namespace account::server{
         // 这里 首先 判断是否处于冷却期 不处于冷却期 就发送验证码 并设置冷却期 并且绑定验证码
         // 先检查mail是否正确
         if(!mail::CheckMail(mail)){
-            co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"邮箱格式错误");
+            co_return response::ValidationError(AS_MSG_BAD_MAIL);
         }
         // 邮箱正确 检查是否处于冷却期
         bool cooling=co_await mail::IsMailCooling(mail);
         if(cooling){
             // 这里有两种情况 一种是服务器出错 一种是 真的处于冷却器 总是 都阻止操作
-            co_return response::Failure(HttpStatusCode::k403Forbidden,errors::FORBIDDEN,"出错,请稍后尝试");
+            co_return response::Forbidden("出错,请稍后尝试");
         }
         // 邮箱不处于冷却 先生成code
         std::string code;
@@ -111,9 +117,7 @@ namespace account::server{
             co_return response::Failure(HttpStatusCode::k500InternalServerError,errors::SERVICE_UNAVAILABLE,"服务出错");
         }
         // 全部成功
-        Json::Value resp;
-        resp["status"]=true;
-        co_return response::Success(resp);
+        co_return response::Success();
     }
 
 
@@ -126,13 +130,13 @@ namespace account::server{
             if(meta[UR_ERROR]==UR_DB_ERROR){
                 co_return response::ServiceUnavailable();
             }else{
-                co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"用户不存在");
+                co_return response::ValidationError(AS_MSG_NO_USER);
             }
         }
         // 校验密码
         bool success=co_await PasswordHasher::getInstance().verifyPassword(pwd,meta[UR_PWD].asString());
         if(!success){
-            co_return response::Failure(HttpStatusCode::k401Unauthorized,errors::AUTH_REQUIRED,"密码错误");
+            co_return response::AuthRequired("密码错误");
         }
         // 校验成功 根据persistent 确定cookie的maxage
 
@@ -145,9 +149,7 @@ namespace account::server{
             co_return response::ServiceUnavailable();
         }
         // 成功生成并绑定了cookie 现在让请求设置上cookie
-        Json::Value res;
-        res["status"]=true;
-        HttpResponsePtr resp=response::Success(res);
+        HttpResponsePtr resp=response::Success();
         response::setLoginCookie(resp,cookie,persistent,ttlsecond);
 
         co_return resp;
@@ -159,11 +161,10 @@ namespace account::server{
         // 检验一下邮箱和名称是否合理
         const std::string trimmedName=trimName(name);
         if(!checkName(trimmedName)||!mail::CheckMail(mail)){
-            co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"名称或邮箱不符合要求");
+            co_return response::ValidationError("名称或邮箱不符合要求");
         }
         if(!checkPassword(pwd)){
-            co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,
-                "密码须为 " AS_PWD_MIN "～" AS_PWD_MAX " 个字符，只允许英文字母、数字和半角符号，不能包含空格");
+            co_return response::ValidationError("密码须为 " AS_PWD_MIN "～" AS_PWD_MAX " 个字符，只允许英文字母、数字和半角符号，不能包含空格");
         }
         // 校验一下验证码
         Json::Value res=co_await mail::ConsumeRegisterCode(mail,code);
@@ -171,7 +172,7 @@ namespace account::server{
             if(res["code"]=="UNKNOWN_ERROR"){
                 co_return response::InternalError();
             }else{
-                co_return response::Failure(HttpStatusCode::k400BadRequest,errors::VALIDATION_ERROR,"验证码失效或错误");
+                co_return response::ValidationError(AS_MSG_BAD_CODE);
             }
         }
         // 验证码校验成功 本质上已经可以正常写入数据库了 现在将pwd hash
@@ -200,7 +201,7 @@ namespace account::server{
         if(userId==-1){
             // 回滚
             tx->rollback();
-            co_return response::Failure(HttpStatusCode::k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,"用户名或邮箱重名冲突，或服务出错");
+            co_return response::ServiceUnavailable("用户名或邮箱重名冲突，或服务出错");
         }
         // userid创建成功 现在创建root根目录并绑定
         uint64_t rootId=co_await file::database::CreateRoot(tx,userId);
@@ -225,7 +226,7 @@ namespace account::server{
 
         const bool loggedIn=!cookie.empty();
         Json::Value data;
-        data["status"]=true;
+        data[UR_STATUS]=true;
         data["logged_in"]=loggedIn;
         HttpResponsePtr resp=response::Success(data,HttpStatusCode::k201Created,
             loggedIn?"账户创建成功":"注册成功，暂时无法自动登录，请稍后到登录页登录");
@@ -238,39 +239,203 @@ namespace account::server{
 
 
     Task<HttpResponsePtr> GetAccountInfo(uint64_t userId){
-
+        // 得到用户的账户 name, mail,root_id avatar_path
+        Json::Value meta=co_await database::GetAccountInfo(userId);
+        if(meta[UR_ID]==-1){
+            if(meta[UR_ERROR]==UR_NO_USER){
+                co_return response::NotFound(AS_MSG_NO_USER);
+            }else{
+                co_return response::ServiceUnavailable();
+            }
+        }
+        // 但是不返回给前端 应该由cookie来确认身份
+        Json::Value data;
+        data[UR_STATUS]=true;
+        data[UR_NAME]=meta[UR_NAME];
+        data[UR_MAIL]=meta[UR_MAIL];
+        data[UR_ROOT]=meta[UR_ROOT];
+        data[UR_AVATAR]=meta[UR_AVATAR];
+        co_return response::Success(data);
     }
 
 
     Task<HttpResponsePtr> GetAvatar(uint64_t userId){
+        // 这个是要返回图片资源 需要通过nginx将图片转交给对方
+        Json::Value meta=co_await database::GetAccountInfo(userId);
+        if(meta[UR_ID]==-1){
+            if(meta[UR_ERROR]==UR_NO_USER){
+                co_return response::NotFound(AS_MSG_NO_USER);
+            }
+            else{
+                co_return response::ServiceUnavailable();
+            }
+        }
+        std::string path=meta[UR_AVATAR].asString();
+        if(path=="default"){
+            // 按理来说 前端html应该直接就有默认图像的内容 就不返回了
+            co_return response::Forbidden();
+        }
+        // 首版统一返回png格式 如果原图是jpg格式 让浏览器自行识别
+        HttpResponsePtr resp=response::Success();
+        resp->addHeader("Content-Disposition","inline");
+        response::SetStorageRedirect(resp,path);
+        resp->addHeader("Content-Type","image/png");
 
+        co_return resp;
     }
     
     
     Task<HttpResponsePtr> ModifyName(uint64_t userId,const std::string name){
-
+        // 尝试修改 如果重名就返回失败即可
+        if(!checkName(name)){
+            co_return response::ValidationError("名称非法");
+        }
+        std::string trimmed=trimName(name);
+        bool success=co_await database::ModifyName(userId,trimmed);
+        if(!success){
+            // 没成功 要么MySQL挂了 要么重名
+            co_return response::ServiceUnavailable(AS_MSG_CONFLICT);
+        }
+        // 成功
+        co_return response::Success();
     }
 
 
     Task<HttpResponsePtr> ModifyAvatar(uint64_t userId,const HttpFile& file){
-
+        // 修改头像 需要先上传头像 然后将头像记录到MySQL 全部成功之后 返回给用户status
+        // 先在临时目录保存
+        // 先校验文件格式
+        if(file.fileLength()==0){
+            co_return response::ValidationError("文件错误");
+        }
+        if(file.getContentType()!=ContentType::CT_IMAGE_PNG && file.getContentType()!=ContentType::CT_IMAGE_JPG){
+            co_return response::ValidationError("文件格式错误");
+        }
+        std::string path=co_await upload::ordinary::SaveOrdinaryFile(file);
+        if(path.empty()){
+            co_return response::InternalError();
+        }
+        // 通过fastdfs上传
+        std::string storageId;
+        bool uploaded=true;
+        try{
+            storageId=co_await FastDfsStorage::getInstance().uploadFile(path);
+        }catch(const std::exception&e){
+            LOG_ERROR<<"上传图片失败"<<e.what();
+            uploaded=false;
+        }catch(...){
+            LOG_ERROR<<"上传图片失败:未知异常";
+            uploaded=false;
+        }
+        // 图片上传成功与否 先清理临时文件 清理失败也不要紧 错误信息在函数中已经打印过
+        co_await upload::ordinary::RemoveOrdinaryFile(path);
+        if(!uploaded || storageId.empty()){
+            co_return response::InternalError();
+        }
+        // 尝试上传MySQL
+        bool success=co_await database::ModifyAvatar(userId,storageId);
+        if(!success){
+            // 上传失败 用户不存在/服务出错
+            // 清理fastdfs文件
+            bool cleaned=false;
+            try{
+                cleaned=co_await FastDfsStorage::getInstance().deleteFile(storageId);
+            }catch(const std::exception&e){
+                LOG_ERROR<<"清理文件失败"<<e.what();
+            }catch(...){
+                LOG_ERROR<<"清理文件失败:未知错误";
+            }
+            if(!cleaned){
+                LOG_ERROR<<"清理文件失败";
+            }
+            co_return response::ServiceUnavailable();
+        }
+        // 成功 返回给用户
+        co_return response::Success();
     }
 
 
     Task<HttpResponsePtr> ModifyMail(uint64_t userId,const std::string oldmail,
                                         const std::string newmail,const std::string oldcode,
                                         const std::string newcode){
-
+        // 修改邮箱 验证一下 两个邮箱和验证码是否都匹配 并最终尝试写入数据库 看看会不会有冲突
+        if(!mail::CheckMail(newmail)||!mail::CheckMail(oldmail)){
+            co_return response::ValidationError(AS_MSG_BAD_MAIL);
+        }
+        if(newmail==oldmail){
+            co_return response::ValidationError("新旧邮箱不能相同");
+        }
+        // 先检查旧邮箱
+        Json::Value meta=co_await database::GetAccountInfo(userId);
+        if(meta[UR_ID]==-1){
+            if(meta[UR_ERROR]==UR_DB_ERROR){
+                co_return response::ServiceUnavailable();
+            }else{
+                co_return response::AuthRequired(AS_MSG_AUTH_FAILED);
+            }
+        }
+        if(meta[UR_MAIL].asString()!=oldmail){
+            co_return response::ValidationError("错误操作");
+        }
+        // 匹配邮箱和验证码
+        Json::Value res1=co_await mail::ConsumeRegisterCode(oldmail,oldcode);
+        Json::Value res2=co_await mail::ConsumeRegisterCode(newmail,newcode);
+        if(!res1["valid"].asBool()||!res2["valid"].asBool()){
+            if(res1["code"]=="UNKNOWN_ERROR"||res2["code"]=="UNKNOWN_ERROR"){
+                co_return response::ServiceUnavailable();
+            }
+            co_return response::ValidationError(AS_MSG_BAD_CODE);
+        }
+        // 匹配成功 尝试写入数据库
+        bool success= co_await database::ModifyMail(userId,oldmail,newmail);
+        if(!success){
+            co_return response::ServiceUnavailable(AS_MSG_CONFLICT);
+        }
+        // 全部成功
+        co_return response::Success();
     }
 
 
     Task<HttpResponsePtr> ModifyPassword(uint64_t userId,const std::string& oldpwd,const std::string& newpwd){
-
+        // 匹配旧密码 hash新密码
+        if(!checkPassword(oldpwd)||!checkPassword(newpwd)){
+            co_return response::ValidationError("密码格式错误");
+        }
+        Json::Value meta=co_await database::GetAccountInfo(userId);
+        if(meta[UR_ID]==-1){
+            if(meta[UR_ERROR]==UR_DB_ERROR){
+                co_return response::ServiceUnavailable();
+            }
+            co_return response::AuthRequired(AS_MSG_AUTH_FAILED);
+        }
+        std::string oldpwdhash=meta[UR_PWD].asString();
+        // 校验旧密码
+        bool success=co_await PasswordHasher::getInstance().verifyPassword(oldpwd,oldpwdhash);
+        if(!success){
+            co_return response::AuthRequired("服务出错或校验失败");
+        }
+        // 更换新密码
+        std::string hash=co_await PasswordHasher::getInstance().hashPassword(newpwd);
+        if(hash.empty()){
+            co_return response::InternalError();
+        }
+        bool res=co_await database::ModifyPassword(userId,hash);
+        if(!res){
+            co_return response::ServiceUnavailable();
+        }
+        co_return response::Success();
     }
 
 
     Task<HttpResponsePtr> Logout(const std::string& sid){
-
+        // 清理一下cookie
+        bool success=co_await session::RevokeSession(sid);
+        if(!success){
+            co_return response::ServiceUnavailable();
+        }
+        HttpResponsePtr resp=response::Success();
+        response::clearLoginCookie(resp);
+        co_return resp;
     }
 
 }

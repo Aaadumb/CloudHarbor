@@ -2,6 +2,9 @@
 
 #include <drogon/drogon.h>
 #include <functional>
+#include "ApiResponse.h"
+#include "SessionStore.h"
+#include "FileService.h"
 using namespace drogon;
 
 class FileController:public HttpController<FileController>{

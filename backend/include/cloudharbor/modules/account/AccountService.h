@@ -12,6 +12,8 @@
 #include "PasswordHasher.h"
 #include "MailSender.h"
 #include "FileRepository.h"
+#include "UploadTempStorage.h"
+#include "FastDfsStorage.h"
 using namespace account;
 using namespace drogon;
 namespace account{

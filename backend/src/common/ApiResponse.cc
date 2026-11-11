@@ -1,50 +1,88 @@
 #include "ApiResponse.h"
+
+#include <utility>
+
 namespace response{
     namespace {
         constexpr char defaultErrorMessage[] = "服务出错";
+
+        HttpResponsePtr MakeJsonResponse(HttpStatusCode status,const std::string& code,
+                                         const std::string& message,Json::Value data){
+            Json::Value json;
+            json["code"]=code;
+            json["message"]=message;
+            json["data"]=std::move(data);
+            auto response=HttpResponse::newHttpJsonResponse(std::move(json));
+            response->setStatusCode(status);
+            return response;
+        }
+
+        Cookie MakeLoginCookie(const std::string& value){
+            Cookie cookie("session_id",value);
+            cookie.setPath("/");
+            cookie.setHttpOnly(true);
+            cookie.setSecure(true);
+            cookie.setSameSite(Cookie::SameSite::kLax);
+            return cookie;
+        }
     }
 
+    HttpResponsePtr Success(){
+        Json::Value data;
+        data["status"]=true;
+        return Success(std::move(data));
+    }
     HttpResponsePtr Success(Json::Value data,HttpStatusCode status,std::string message){
-        Json::Value json;
-        json["code"]="OK";
-        json["message"]=message;
-        json["data"]=data;
-        HttpResponsePtr req=HttpResponse::newHttpJsonResponse(json);
-        req->setStatusCode(status);
-        return req;
+        return MakeJsonResponse(status,"OK",message,std::move(data));
+    }
+    HttpResponsePtr SuccessWithId(Json::Value id,std::string message){
+        Json::Value data;
+        data["id"]=std::move(id);
+        return Success(std::move(data),k200OK,std::move(message));
     }
     HttpResponsePtr Failure(const HttpStatusCode& status,const std::string &code,const std::string& message){
-        Json::Value json;
-        json["code"]=code;
-        json["message"]=message;
-        json["data"]=Json::Value(Json::nullValue);
-        HttpResponsePtr req=HttpResponse::newHttpJsonResponse(json);
-        req->setStatusCode(status);
-        return req;
+        return MakeJsonResponse(status,code,message,Json::Value(Json::nullValue));
+    }
+    HttpResponsePtr ValidationError(const std::string& message){
+        return Failure(k400BadRequest,errors::VALIDATION_ERROR,message);
+    }
+    HttpResponsePtr AuthRequired(const std::string& message){
+        return Failure(k401Unauthorized,errors::AUTH_REQUIRED,message);
+    }
+    HttpResponsePtr Forbidden(const std::string& message){
+        return Failure(k403Forbidden,errors::FORBIDDEN,message);
+    }
+    HttpResponsePtr NotFound(const std::string& message){
+        return Failure(k404NotFound,errors::NOT_FOUND,message);
+    }
+    HttpResponsePtr NameConflict(const std::string& message){
+        return Failure(k409Conflict,errors::NAME_CONFLICT,message);
     }
     HttpResponsePtr InternalError(){
-        return Failure(k500InternalServerError,errors::INTERNAL_ERROR,defaultErrorMessage);
+        return InternalError(defaultErrorMessage);
+    }
+    HttpResponsePtr InternalError(const std::string& message){
+        return Failure(k500InternalServerError,errors::INTERNAL_ERROR,message);
     }
     HttpResponsePtr ServiceUnavailable(){
-        return Failure(k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,defaultErrorMessage);
+        return ServiceUnavailable(defaultErrorMessage);
+    }
+    HttpResponsePtr ServiceUnavailable(const std::string& message){
+        return Failure(k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,message);
+    }
+    void SetStorageRedirect(const HttpResponsePtr& response,const std::string& storageId){
+        response->addHeader("X-Accel-Redirect","/_download/"+storageId);
+        response->addHeader("Cache-Control","private, no-store");
     }
     void setLoginCookie(HttpResponsePtr& response,const std::string& sid,bool persistent,int64_t ttlSeconds){
-        Cookie c("session_id",sid);
-        c.setPath("/");
-        c.setHttpOnly(true);
-        c.setSecure(true);
-        c.setSameSite(Cookie::SameSite::kLax);
+        auto c=MakeLoginCookie(sid);
         if(persistent){
             c.setMaxAge(ttlSeconds);
         }
         response->addCookie(c);
     }
     void clearLoginCookie(HttpResponsePtr& response){
-        Cookie c("session_id","deleted");
-        c.setPath("/");
-        c.setHttpOnly(true);
-        c.setSecure(true);
-        c.setSameSite(Cookie::SameSite::kLax);
+        auto c=MakeLoginCookie("deleted");
         c.setMaxAge(0);
         response->addCookie(c);
     }
