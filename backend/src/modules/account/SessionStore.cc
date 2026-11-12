@@ -1,4 +1,5 @@
 #include "SessionStore.h"
+#include <utility>
 namespace account::session{
     std::string CreateSessionId(){
         // 32字节安全随机数编码为64个十六进制字符 出错时返回空字符串
@@ -31,7 +32,7 @@ namespace account::session{
             try{
                 auto result=
                     co_await redis->execCommandCoro(
-                        R"(set %s {"userId":%llu,"mode":"%s","createTime":%lld} NX EX %llu)",
+                        R"(set %s {"user_id":%llu,"mode":"%s","created_at":%lld} NX EX %llu)",
                         key.c_str(),static_cast<unsigned long long>(userId),mode.c_str(),
                         static_cast<long long>(GetNow()),static_cast<unsigned long long>(ttlSeconds)
                     );
@@ -54,19 +55,27 @@ namespace account::session{
         auto redis=app().getRedisClient();
         const auto key=SS_KEY+sid;
         Json::Value json;
-        json["userId"]=-1;
+        json["user_id"]=-1;
         try{
             auto result=
                 co_await redis->execCommandCoro("get %s",key.c_str());
             if(result.type()==nosql::RedisResultType::kNil){
                 json["error"]="NOEXISTS";
             }else if(result.type()==nosql::RedisResultType::kString){
-                // json=Json::parseFromStream(result.asString());
                 Json::Reader reader;
-                if(!reader.parse(result.asString(),json)){
-                    // 解析失败
-                    json["userId"]=-1;
+                if(!reader.parse(result.asString(),json) || !json.isObject()){
+                    json=Json::Value(Json::objectValue);
+                    json["user_id"]=-1;
                     json["error"]="UNKNOWNERROR";
+                }else{
+                    // 旧会话保留到原 TTL，读取时统一字段名。
+                    Json::Value legacy;
+                    if(json.removeMember("userId",&legacy) && !json.isMember("user_id")){
+                        json["user_id"]=std::move(legacy);
+                    }
+                    if(json.removeMember("createTime",&legacy) && !json.isMember("created_at")){
+                        json["created_at"]=std::move(legacy);
+                    }
                 }
             }
         }catch(const nosql::RedisException&e){

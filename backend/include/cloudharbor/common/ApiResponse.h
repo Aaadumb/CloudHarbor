@@ -7,6 +7,8 @@
 using namespace drogon;
 
 namespace response{
+    inline constexpr char LoginCookieName[]="sessionId";
+    inline constexpr char LegacyLoginCookieName[]="session_id";
     HttpResponsePtr Success();
     HttpResponsePtr Success(Json::Value data,HttpStatusCode status=k200OK,std::string message="");
     HttpResponsePtr SuccessWithId(Json::Value id,std::string message="");
@@ -20,6 +22,7 @@ namespace response{
     HttpResponsePtr InternalError(const std::string& message);
     HttpResponsePtr ServiceUnavailable();
     HttpResponsePtr ServiceUnavailable(const std::string& message);
+    HttpResponsePtr RedirectPage(const std::string& location);
     void SetStorageRedirect(const HttpResponsePtr& response,const std::string& storageId);
     void setLoginCookie(HttpResponsePtr& response,const std::string& sid,bool persistent,int64_t ttlSeconds);
     void clearLoginCookie(HttpResponsePtr& response);

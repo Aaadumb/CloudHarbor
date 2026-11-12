@@ -78,8 +78,8 @@ namespace{
         const auto& metadata=task["metadata"];
         if(metadata["owner_id"].asUInt64()!=userId)co_return UploadTaskMissing();
         const auto size=metadata["size"].asUInt64();
-        const auto chunkSize=metadata["chunk_size"].asUInt64();
-        if(chunkSize==0 || metadata["total_chunks"].asUInt64()!=(size==0 ? 1 : 1+(size-1)/chunkSize)){
+        const auto chunkSize=metadata["chunkSize"].asUInt64();
+        if(chunkSize==0 || metadata["totalChunks"].asUInt64()!=(size==0 ? 1 : 1+(size-1)/chunkSize)){
             LOG_ERROR<<"invalid upload chunk geometry:"<<uploadId;
             co_return response::InternalError(US_MSG_BAD_TASK_DATA);
         }
@@ -201,7 +201,7 @@ namespace upload{
         meta["name"]=name;
         meta["size"]=size;
         meta["last_modified"]=lastModified;
-        // 前端按初始化响应中的 chunk_size 切片。
+        // 前端按初始化响应中的 chunkSize 切片。
         meta["chunk_size"]=chunk_size;
         meta["total_chunks"]=size==0?1:1+(size-1)/chunk_size;// 向上取整
         constexpr int maxAttempts=3;
@@ -212,9 +212,9 @@ namespace upload{
             const auto res=co_await chunk::CreateTask(uploadId,meta);
             if(res["status"].asBool()){
                 Json::Value data;
-                data["upload_id"]=uploadId;
-                data["chunk_size"]=chunk_size;
-                data["total_chunks"]=meta["total_chunks"];
+                data["uploadId"]=uploadId;
+                data["chunkSize"]=chunk_size;
+                data["totalChunks"]=meta["total_chunks"];
                 co_return response::Success(data,k201Created);
             }
             if(res["error"]!=UTS_ID_CONFLICT){
@@ -236,11 +236,11 @@ namespace upload{
             co_return UploadTaskBusy();
         }
 
-        const auto totalChunks=metadata["total_chunks"].asUInt64();
+        const auto totalChunks=metadata["totalChunks"].asUInt64();
         if(index==0 || index>totalChunks){
             co_return response::ValidationError("分片编号超出范围");
         }
-        const auto chunkSize=metadata["chunk_size"].asUInt64();
+        const auto chunkSize=metadata["chunkSize"].asUInt64();
         const auto size=metadata["size"].asUInt64();
         const auto expectedSize=index==totalChunks ? size-(index-1)*chunkSize : chunkSize;
         if(chunk.fileLength()!=expectedSize){
@@ -252,7 +252,7 @@ namespace upload{
             case SaveChunkResult::Saved:{
                 Json::Value data;
                 data["status"]=true;
-                data["upload_id"]=uploadId;
+                data["uploadId"]=uploadId;
                 data["index"]=Json::UInt64(index);
                 data["stored"]=true;
                 co_return response::Success(data,k200OK,"保存成功");
@@ -274,14 +274,14 @@ namespace upload{
         if(metadata.isMember("cleanup") || metadata.isMember(UTS_FINALIZING_ID))co_return UploadTaskBusy();
 
         Json::Value data;
-        data["upload_id"]=uploadId;
-        data["parent_id"]=metadata["parent_id"].asString();
+        data["uploadId"]=uploadId;
+        data["parentId"]=metadata["parentId"].asString();
         data["name"]=metadata["name"];
         data["size"]=metadata["size"];
-        data["last_modified"]=metadata["last_modified"];
-        data["chunk_size"]=metadata["chunk_size"];
-        data["total_chunks"]=metadata["total_chunks"];
-        data["uploaded_chunks"]=task["uploaded_chunks"];
+        data["lastModified"]=metadata["lastModified"];
+        data["chunkSize"]=metadata["chunkSize"];
+        data["totalChunks"]=metadata["totalChunks"];
+        data["uploadedChunks"]=task["uploaded_chunks"];
         co_return response::Success(data);
     }
 
@@ -313,7 +313,7 @@ namespace upload{
             co_return response::SuccessWithId(entry[FR_ID]);
         }
 
-        const auto totalChunks=metadata["total_chunks"].asUInt64();
+        const auto totalChunks=metadata["totalChunks"].asUInt64();
         const auto& received=task["uploaded_chunks"];
         if(received.size()!=totalChunks){
             co_return response::Failure(k409Conflict,US_ERR_CHUNKS_MISSING,US_MSG_CHUNKS_MISSING);
@@ -325,10 +325,10 @@ namespace upload{
             }
         }
 
-        const auto parentId=metadata["parent_id"].asUInt64();
+        const auto parentId=metadata["parentId"].asUInt64();
         const auto name=metadata["name"].asString();
         if(auto failure=co_await CheckUploadDestination(userId,parentId,name))co_return failure;
-        const auto modifiedAt=FormatLastModified(metadata["last_modified"].asUInt64());
+        const auto modifiedAt=FormatLastModified(metadata["lastModified"].asUInt64());
         if(modifiedAt.empty()){
             co_return response::InternalError(US_MSG_BAD_TASK_DATA);
         }

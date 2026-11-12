@@ -1,71 +1,49 @@
 #include "FileController.h"
 
-namespace{
-    std::shared_ptr<Json::Value> ReadJsonObject(const HttpRequestPtr& req){
-        const auto& json=req->getJsonObject();
-        if(!json || !json->isObject() || req->getHeader("Content-Type")!="application/json"){
-            return nullptr;
-        }
-        return json;
-    }
+#include "AuthFilter.h"
+#include "FileService.h"
+#include "RequestJson.h"
+#include <charconv>
 
-    Task<HttpResponsePtr> FindSessionUser(const std::string& sessionId,uint64_t& userId){
-        const auto session=co_await account::session::FindSession(sessionId);
-        if(session["userId"]==-1){
-            if(session["error"]=="NOEXISTS"){
-                co_return response::AuthRequired();
-            }
-            co_return response::ServiceUnavailable();
+namespace{
+    std::optional<uint64_t> ParseEntryId(const std::string& value){
+        uint64_t id=0;
+        const auto end=value.data()+value.size();
+        const auto [ptr,error]=std::from_chars(value.data(),end,id);
+        if(error!=std::errc{} || ptr!=end || id==0){
+            return std::nullopt;
         }
-        userId=session["userId"].asUInt64();
-        co_return nullptr;
+        return id;
     }
 }
 
 Task<void> FileController::queryDirectory
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
-    // 主要是要拿到userid 和 path/storageid
-    std::string cookie= req->getCookie("session_id");
-    if(cookie.empty()){
-        callback(response::AuthRequired());
-        co_return;
-    }
-    const auto jsonptr=ReadJsonObject(req);
-    if(!jsonptr){
+    const auto& parameters=req->getParameters();
+    const auto id=parameters.find("id");
+    const auto path=parameters.find("path");
+    if((id==parameters.end())==(path==parameters.end())){
         callback(response::ValidationError());
         co_return;
     }
-    const auto& json=*jsonptr;
-    if(json.isMember("path")+json.isMember("id")!=1){
+    const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    if(path!=parameters.end()){
+        callback(co_await file::server::QueryDirectory(userId,std::nullopt,path->second));
+        co_return;
+    }
+
+    const auto directoryId=ParseEntryId(id->second);
+    if(!directoryId){
         callback(response::ValidationError());
         co_return;
     }
-    // 保证只有一个字段 现在开始判断类型
-    if((json.isMember("path")&&!json["path"].isString())||(json.isMember("id")&&!json["id"].isUInt64())){
-        callback(response::ValidationError());
-        co_return;
-    }
-    uint64_t userid=0;
-    if(auto failure=co_await FindSessionUser(cookie,userid)){
-        callback(failure);
-        co_return;
-    }
-    HttpResponsePtr resp;
-    if(json.isMember("path"))resp=co_await file::server::QueryDirectory(userid,std::nullopt,json["path"].asString());
-    else resp=co_await file::server::QueryDirectory(userid,json["id"].asUInt64());
-    callback(resp);
-    co_return;
+    callback(co_await file::server::QueryDirectory(userId,*directoryId));
 }
 
 
 Task<void> FileController::createDirectory
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
-    std::string cookie=req->getCookie("session_id");
-    if(cookie.empty()){
-        callback(response::AuthRequired());
-        co_return;
-    }
-    const auto jsonptr=ReadJsonObject(req);
+    const auto jsonptr=request::ReadJsonObject(req);
     if(!jsonptr){
         callback(response::ValidationError());
         co_return;
@@ -76,27 +54,45 @@ Task<void> FileController::createDirectory
         callback(response::ValidationError());
         co_return;
     }
-    // 检查一下cookie 能否对应到用户
-    uint64_t userid=0;
-    if(auto failure=co_await FindSessionUser(cookie,userid)){
-        callback(failure);
-        co_return;
-    }
-    // 参数齐全 开始执行函数
-    HttpResponsePtr resp=
-        co_await file::server::CreateDirectory(userid,json["parentId"].asUInt64(),json["name"].asString());
-    callback(resp);
-    co_return;
+    const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::CreateDirectory(userId,json["parentId"].asUInt64(),json["name"].asString()));
 }
 
 
 Task<void> FileController::deleteEntry
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
+    const auto jsonptr=request::ReadJsonObject(req);
+    if(!jsonptr){
+        callback(response::ValidationError());
+        co_return;
+    }
+    const auto& ids=(*jsonptr)["entryIds"];
+    if(!ids.isArray() || ids.empty()){
+        callback(response::ValidationError());
+        co_return;
+    }
 
+    std::vector<uint64_t> entryIds;
+    entryIds.reserve(ids.size());
+    for(const auto& id:ids){
+        if(!id.isUInt64() || id.asUInt64()==0){
+            callback(response::ValidationError());
+            co_return;
+        }
+        entryIds.push_back(id.asUInt64());
+    }
+    const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::DeleteEntries(userId,entryIds));
 }
 
 
 Task<void> FileController::downloadFile
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
-
+    const auto fileId=ParseEntryId(req->getParameter("id"));
+    if(!fileId){
+        callback(response::ValidationError());
+        co_return;
+    }
+    const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::DownloadFile(userId,*fileId));
 }

@@ -17,12 +17,18 @@ namespace response{
             return response;
         }
 
-        Cookie MakeLoginCookie(const std::string& value){
-            Cookie cookie("session_id",value);
+        Cookie MakeLoginCookie(const std::string& name,const std::string& value){
+            Cookie cookie(name,value);
             cookie.setPath("/");
             cookie.setHttpOnly(true);
             cookie.setSecure(true);
             cookie.setSameSite(Cookie::SameSite::kLax);
+            return cookie;
+        }
+
+        Cookie ExpiredLoginCookie(const std::string& name){
+            auto cookie=MakeLoginCookie(name,"deleted");
+            cookie.setMaxAge(0);
             return cookie;
         }
     }
@@ -70,20 +76,25 @@ namespace response{
     HttpResponsePtr ServiceUnavailable(const std::string& message){
         return Failure(k503ServiceUnavailable,errors::SERVICE_UNAVAILABLE,message);
     }
+    HttpResponsePtr RedirectPage(const std::string& location){
+        auto response=HttpResponse::newRedirectionResponse(location,k302Found);
+        response->addHeader("Cache-Control","no-store");
+        return response;
+    }
     void SetStorageRedirect(const HttpResponsePtr& response,const std::string& storageId){
         response->addHeader("X-Accel-Redirect","/_download/"+storageId);
         response->addHeader("Cache-Control","private, no-store");
     }
     void setLoginCookie(HttpResponsePtr& response,const std::string& sid,bool persistent,int64_t ttlSeconds){
-        auto c=MakeLoginCookie(sid);
+        auto c=MakeLoginCookie(LoginCookieName,sid);
         if(persistent){
             c.setMaxAge(ttlSeconds);
         }
         response->addCookie(c);
+        response->addCookie(ExpiredLoginCookie(LegacyLoginCookieName));
     }
     void clearLoginCookie(HttpResponsePtr& response){
-        auto c=MakeLoginCookie("deleted");
-        c.setMaxAge(0);
-        response->addCookie(c);
+        response->addCookie(ExpiredLoginCookie(LoginCookieName));
+        response->addCookie(ExpiredLoginCookie(LegacyLoginCookieName));
     }
 }

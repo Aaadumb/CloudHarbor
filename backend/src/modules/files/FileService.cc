@@ -57,7 +57,7 @@ namespace{
             entry[FR_NAME]=row[FR_NAME];
             entry[FR_TYPE]=row[FR_TYPE];
             entry[FR_SIZE]=row[FR_SIZE];
-            entry[FR_LAST_MODIFY]=row[FR_LAST_MODIFY];
+            entry["lastModified"]=row[FR_LAST_MODIFY];
             entries.append(std::move(entry));
         }
 

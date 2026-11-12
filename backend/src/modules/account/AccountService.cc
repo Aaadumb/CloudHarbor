@@ -227,7 +227,7 @@ namespace account::server{
         const bool loggedIn=!cookie.empty();
         Json::Value data;
         data[UR_STATUS]=true;
-        data["logged_in"]=loggedIn;
+        data["loggedIn"]=loggedIn;
         HttpResponsePtr resp=response::Success(data,HttpStatusCode::k201Created,
             loggedIn?"账户创建成功":"注册成功，暂时无法自动登录，请稍后到登录页登录");
         if(loggedIn){
@@ -253,8 +253,8 @@ namespace account::server{
         data[UR_STATUS]=true;
         data[UR_NAME]=meta[UR_NAME];
         data[UR_MAIL]=meta[UR_MAIL];
-        data[UR_ROOT]=meta[UR_ROOT];
-        data[UR_AVATAR]=meta[UR_AVATAR];
+        data["rootId"]=meta[UR_ROOT];
+        data["avatarPath"]=meta[UR_AVATAR];
         co_return response::Success(data);
     }
 
@@ -429,8 +429,7 @@ namespace account::server{
 
     Task<HttpResponsePtr> Logout(const std::string& sid){
         // 清理一下cookie
-        bool success=co_await session::RevokeSession(sid);
-        if(!success){
+        if(!sid.empty() && !(co_await session::RevokeSession(sid))){
             co_return response::ServiceUnavailable();
         }
         HttpResponsePtr resp=response::Success();

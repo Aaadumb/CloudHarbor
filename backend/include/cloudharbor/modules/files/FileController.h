@@ -2,18 +2,15 @@
 
 #include <drogon/drogon.h>
 #include <functional>
-#include "ApiResponse.h"
-#include "SessionStore.h"
-#include "FileService.h"
 using namespace drogon;
 
 class FileController:public HttpController<FileController>{
 public:
     METHOD_LIST_BEGIN
-        ADD_METHOD_TO(FileController::queryDirectory,"/files/query",Get);
-        ADD_METHOD_TO(FileController::createDirectory,"/files/create",Post);
-        ADD_METHOD_TO(FileController::deleteEntry,"/files/delete",Delete);
-        ADD_METHOD_TO(FileController::downloadFile,"/files/download",Get);
+        ADD_METHOD_TO(FileController::queryDirectory,"/files/query",Get,"AuthFilter");
+        ADD_METHOD_TO(FileController::createDirectory,"/files/create",Post,"AuthFilter");
+        ADD_METHOD_TO(FileController::deleteEntry,"/files/delete",Delete,"AuthFilter");
+        ADD_METHOD_TO(FileController::downloadFile,"/files/download",Get,"AuthFilter");
     METHOD_LIST_END
 private:
     Task<void> queryDirectory(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
