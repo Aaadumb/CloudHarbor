@@ -35,7 +35,12 @@ namespace account{
         Task<bool> ModifyName(uint64_t userId,const std::string& name);
         Task<bool> ModifyMail(uint64_t userId,const std::string& oldmail,const std::string& newmail);
         Task<bool> ModifyPassword(uint64_t userId,const std::string& passwordHash);
-        Task<bool> ModifyAvatar(uint64_t userId,const std::string& avatarPath);
+        enum class AvatarUpdateResult{
+            Updated,
+            Rejected,
+            Uncertain
+        };
+        Task<AvatarUpdateResult> ModifyAvatar(uint64_t userId,const std::string& avatarPath);
         Task<bool> ModifyFiled(uint64_t userId,const std::string filed,const std::string& content);
     }
 }

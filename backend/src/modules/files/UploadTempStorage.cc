@@ -63,7 +63,8 @@ namespace {
 
         fs::remove(path,ec);
         if(!ec)fs::remove(directory,ec);
-        if(ec)LOG_ERROR<<"remove ordinary upload error:"<<ec.message();
+        if(ec)LOG_ERROR<<"event=temp_cleanup_failed stage=remove_ordinary_upload path="<<path.string()
+                       <<" error="<<ec.message();
         return !ec;
     }
 
@@ -160,7 +161,8 @@ TaskDirectoryResult CreateTaskDirectoryAwaiter::createTaskDirectory(){
     if(fs::create_directory(path+"/chunks",ec))return TaskDirectoryResult::Created;
     if(ec)LOG_ERROR<<"create chunks directory error:"<<ec.message();
     fs::remove(path,ec);
-    if(ec)LOG_ERROR<<"remove empty task directory error:"<<ec.message();
+    if(ec)LOG_ERROR<<"event=temp_cleanup_failed stage=remove_empty_task_directory path="<<path
+                   <<" error="<<ec.message();
     return TaskDirectoryResult::Failed;
 }
 void CreateTaskDirectoryAwaiter::await_suspend(std::coroutine_handle<> handle){
@@ -211,7 +213,8 @@ bool SaveChunkAwaiter::saveChunk(){
         if(!ec)return true;
     }
     fs::remove(temporary,ec);
-    if(ec)LOG_ERROR<<"remove incomplete chunk error:"<<ec.message();
+    if(ec)LOG_ERROR<<"event=temp_cleanup_failed stage=remove_incomplete_chunk path="<<temporary
+                   <<" error="<<ec.message();
     return false;
 }
 
@@ -269,7 +272,8 @@ std::string MergeChunksAwaiter::mergeChunks(){
         if(!ec)return target.string();
     }
     fs::remove(temporary,ec);
-    if(ec)LOG_ERROR<<"remove incomplete merge error:"<<ec.message();
+    if(ec)LOG_ERROR<<"event=temp_cleanup_failed stage=remove_incomplete_merge path="<<temporary.string()
+                   <<" error="<<ec.message();
     return {};
 }
 
@@ -306,7 +310,7 @@ bool RemoveTaskDirectoryAwaiter::removeTaskDirectory(){
     std::error_code ec;
     fs::remove_all(path,ec);
     if(ec){
-        // 说明路径存在的同时删除失败
+        LOG_ERROR<<"event=temp_cleanup_failed stage=remove_task_directory path="<<path<<" error="<<ec.message();
         return false;
     }
     // 成功删除或者路径本身不存在
@@ -577,10 +581,15 @@ namespace upload::chunk{
 
         auto redis=app().getRedisClient();
         json["error"]=UTS_REDIS_ERR;
-        if(!redis)co_return json;
+        if(!redis){
+            LOG_ERROR<<"event=upload_cleanup_failed stage=mark_cleanup upload_id="<<uploadId
+                     <<" error=redis_client_unavailable";
+            co_return json;
+        }
         const auto taskKey=UTS_KEY+uploadId;
         const auto metaKey=taskKey+":meta";
         const auto chunksKey=taskKey+":chunks";
+        const char* stage="mark_cleanup";
         try{
             // 保留归属和清理状态，直到目录删除成功。重试时保留第一次的结果。
             constexpr char markCleanup[]=
@@ -592,18 +601,29 @@ namespace upload::chunk{
                 "EVAL %s 1 %s %s %s",markCleanup,metaKey.c_str(),
                 completedFileId.empty() ? "cancel" : completedFileId.c_str(),UTS_FINALIZING_ID
             );
-            if(marked.type()!=nosql::RedisResultType::kInteger || marked.asInteger()!=1)co_return json;
+            if(marked.type()!=nosql::RedisResultType::kInteger || marked.asInteger()!=1){
+                LOG_ERROR<<"event=upload_cleanup_failed stage="<<stage<<" upload_id="<<uploadId
+                         <<" error=cleanup_not_marked";
+                co_return json;
+            }
 
+            stage="remove_directory";
             if(!(co_await RemoveTaskDirectory(uploadId))){
+                LOG_ERROR<<"event=upload_cleanup_failed stage="<<stage<<" upload_id="<<uploadId
+                         <<" error=directory_clear_failed";
                 json["error"]="DIRECTORYCLEARERROR";
                 co_return json;
             }
+            stage="delete_redis_keys";
             co_await redis->execCommandCoro(
                 "DEL %s %s",metaKey.c_str(),chunksKey.c_str()
             );
         }catch(const nosql::RedisException& e){
-            LOG_ERROR<<"redis error:"<<e.what();
+            LOG_ERROR<<"event=upload_cleanup_failed stage="<<stage<<" upload_id="<<uploadId<<" error="<<e.what();
             co_return json;
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=upload_cleanup_failed stage="<<stage<<" upload_id="<<uploadId<<" error="<<e.what();
+            throw;
         }
 
         json["status"]=true;

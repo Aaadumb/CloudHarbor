@@ -327,30 +327,38 @@ namespace account::server{
             LOG_ERROR<<"上传图片失败:未知异常";
             uploaded=false;
         }
-        // 图片上传成功与否 先清理临时文件 清理失败也不要紧 错误信息在函数中已经打印过
-        co_await upload::ordinary::RemoveOrdinaryFile(path);
+        try{
+            if(!(co_await upload::ordinary::RemoveOrdinaryFile(path))){
+                LOG_ERROR<<"event=temp_cleanup_failed operation=modify_avatar user_id="<<userId<<" path="<<path;
+            }
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=temp_cleanup_failed operation=modify_avatar user_id="<<userId
+                     <<" path="<<path<<" error="<<e.what();
+        }
         if(!uploaded || storageId.empty()){
             co_return response::InternalError();
         }
-        // 尝试上传MySQL
-        bool success=co_await database::ModifyAvatar(userId,storageId);
-        if(!success){
-            // 上传失败 用户不存在/服务出错
-            // 清理fastdfs文件
-            bool cleaned=false;
+        const auto result=co_await database::ModifyAvatar(userId,storageId);
+        if(result==database::AvatarUpdateResult::Uncertain){
+            LOG_ERROR<<"event=upload_mysql_result_uncertain operation=modify_avatar user_id="<<userId
+                     <<" storage_id="<<storageId;
+            co_return response::ServiceUnavailable();
+        }
+        if(result==database::AvatarUpdateResult::Rejected){
             try{
-                cleaned=co_await FastDfsStorage::getInstance().deleteFile(storageId);
+                if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
+                    LOG_ERROR<<"event=fastdfs_delete_failed operation=modify_avatar user_id="<<userId
+                             <<" storage_id="<<storageId;
+                }
             }catch(const std::exception&e){
-                LOG_ERROR<<"清理文件失败"<<e.what();
+                LOG_ERROR<<"event=fastdfs_delete_failed operation=modify_avatar user_id="<<userId
+                         <<" storage_id="<<storageId<<" error="<<e.what();
             }catch(...){
-                LOG_ERROR<<"清理文件失败:未知错误";
-            }
-            if(!cleaned){
-                LOG_ERROR<<"清理文件失败";
+                LOG_ERROR<<"event=fastdfs_delete_failed operation=modify_avatar user_id="<<userId
+                         <<" storage_id="<<storageId<<" error=unknown_exception";
             }
             co_return response::ServiceUnavailable();
         }
-        // 成功 返回给用户
         co_return response::Success();
     }
 

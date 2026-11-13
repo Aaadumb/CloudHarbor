@@ -1,6 +1,7 @@
 #include "FileService.h"
 #include <bit>
 #include <cctype>
+#include <exception>
 #include <string_view>
 #include <utility>
 #define FS_MSG_SERVICE_ERROR "服务错误"
@@ -200,16 +201,29 @@ namespace file::server{
             }
             bool success=co_await TransactionCommitAwaiter{tx};
             if(!success){
-                // 没成功
+                LOG_ERROR<<"event=delete_mysql_result_uncertain user_id="<<userId;
+                for(const auto& file:result[FR_DATA]){
+                    LOG_ERROR<<"event=delete_mysql_result_uncertain user_id="<<userId
+                             <<" file_id="<<file[FR_ID].asUInt64()<<" storage_id="<<file[FR_PATH].asString();
+                }
                 co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
             }
             // 要进行物理操作
-            for(auto file:result[FR_DATA]){
+            for(const auto& file:result[FR_DATA]){
                 if(file[FR_TYPE]==FR_FOLDER)continue;
-                // 是文件 尝试删除
-                bool success=co_await FastDfsStorage::getInstance().deleteFile(file[FR_PATH].asString());
-                if(!success){
-                    LOG_ERROR<<"delete file error:"<<file[FR_PATH].asString();
+                const auto storageId=file[FR_PATH].asString();
+                const char* logMessage="event=fastdfs_delete_failed operation=delete_entry mysql_state=committed";
+                try{
+                    if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
+                        LOG_ERROR<<logMessage<<" user_id="<<userId
+                                 <<" file_id="<<file[FR_ID].asUInt64()<<" storage_id="<<storageId;
+                    }
+                }catch(const std::exception& e){
+                    LOG_ERROR<<logMessage<<" user_id="<<userId<<" file_id="<<file[FR_ID].asUInt64()
+                             <<" storage_id="<<storageId<<" error="<<e.what();
+                }catch(...){
+                    LOG_ERROR<<logMessage<<" user_id="<<userId<<" file_id="<<file[FR_ID].asUInt64()
+                             <<" storage_id="<<storageId<<" error=unknown_exception";
                 }
             }
             co_return response::Success();

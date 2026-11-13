@@ -1,5 +1,5 @@
 #include "ThreadPool.h"
-#include <cstdio>
+#include <trantor/utils/Logger.h>
 #include <exception>
 
 ThreadPool& ThreadPool::getInstance(){
@@ -22,9 +22,9 @@ ThreadPool::ThreadPool(int n){
                     task();
                 }catch(const std::exception& e){
                     // 任务应自行传回业务结果，这里兜底避免工作线程异常退出。
-                    std::fprintf(stderr,"ThreadPool task failed: %s\n",e.what());
+                    LOG_ERROR<<"event=thread_pool_task_failed error="<<e.what();
                 }catch(...){
-                    std::fputs("ThreadPool task failed: unknown exception\n",stderr);
+                    LOG_ERROR<<"event=thread_pool_task_failed error=unknown_exception";
                 }
             }
         });

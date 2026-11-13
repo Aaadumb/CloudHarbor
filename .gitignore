@@ -1,2 +1,6 @@
 Architecture design/*
 Architecture design
+backend/build
+backend/build/*
+backend/conf/config.local.json
+/runtime/*

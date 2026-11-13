@@ -1,0 +1,37 @@
+{
+    "listeners":[
+        {"address":"0.0.0.0","port":8080,"https":false}
+    ],
+    "db_clients":[{
+        "name":"default",
+        "rdbms":"mysql",
+        "host":"127.0.0.1",
+        "port":3306,
+        "user":"root",
+        "passwd":"",
+        "dbname":"CloudHarbor",
+        "is_fast":false,
+        "number_of_connections":15,
+        "timeout":-1.0
+    }],
+    "redis_clients":[{
+        "name":"default",
+        "host":"127.0.0.1",
+        "port":6379,
+        "passwd":"",
+        "db":0,
+        "number_of_connections":15,
+        "timeout":-1.0
+    }],
+    "app":{
+        "client_max_body_size":"8M",
+        "upload_path":"runtime/drogon-uploads",
+        "log":{
+            "log_path":"runtime/logs",
+            "logfile_base_name":"cloudharbor",
+            "log_level":"INFO",
+            "log_size_limit":10485760,
+            "max_files":10
+        }
+    }
+}

@@ -149,8 +149,22 @@ namespace account{
         Task<bool> ModifyPassword(uint64_t userId,const std::string& pwdhash){
             co_return co_await ModifyFiled(userId,UR_PWD,pwdhash);
         }
-        Task<bool> ModifyAvatar(uint64_t userId,const std::string&path){
-            co_return co_await ModifyFiled(userId,UR_AVATAR,path);
+        Task<AvatarUpdateResult> ModifyAvatar(uint64_t userId,const std::string& avatarPath){
+            auto db=app().getDbClient();
+            try{
+                const auto update=co_await db->execSqlCoro(
+                    "update user set avatar_path=? where id=?",avatarPath,userId);
+                if(update.affectedRows()==1)co_return AvatarUpdateResult::Updated;
+
+                // MySQL 也可能为值未变化的 UPDATE 返回 0。
+                const auto current=co_await db->execSqlCoro(
+                    "select id from user where id=? and cast(avatar_path as binary)=cast(? as binary)",
+                    userId,avatarPath);
+                co_return current.empty() ? AvatarUpdateResult::Rejected : AvatarUpdateResult::Updated;
+            }catch(const DrogonDbException& e){
+                LOG_ERROR<<UR_DB_LOG<<e.base().what();
+                co_return AvatarUpdateResult::Uncertain;
+            }
         }
     }
 }
