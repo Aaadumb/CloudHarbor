@@ -22,6 +22,7 @@
 
 using namespace drogon;
 using namespace drogon::orm;
+using TransactionPtr=std::shared_ptr<Transaction>;
 namespace account{
     namespace database{
         Task<Json::Value> FindByAuth(const std::string& auth);

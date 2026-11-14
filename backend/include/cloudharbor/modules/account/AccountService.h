@@ -16,6 +16,7 @@
 #include "FastDfsStorage.h"
 using namespace account;
 using namespace drogon;
+using TransactionPtr=std::shared_ptr<Transaction>;
 namespace account{
     namespace server{
         Task<HttpResponsePtr> SendCode(const std::string &mail);

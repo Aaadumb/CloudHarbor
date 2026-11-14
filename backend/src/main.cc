@@ -6,7 +6,7 @@
 #include <exception>
 #include <functional>
 #include <initializer_list>
-
+#include <iostream>
 using namespace drogon;
 int main(int argc,char* argv[]){
     if(argc!=2){
@@ -53,6 +53,7 @@ int main(int argc,char* argv[]){
             LOG_ERROR<<"Request handler failed: "<<e.what();
             callback(app().getCustomErrorHandler()(k500InternalServerError,req));
         });
+    std::cout<<"服务启动成功"<<std::endl;
     app().run();
     return EXIT_SUCCESS;
 }

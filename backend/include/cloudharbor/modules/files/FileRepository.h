@@ -28,6 +28,7 @@
 
 using namespace drogon;
 using namespace drogon::orm;
+using TransactionPtr=std::shared_ptr<Transaction>;
 namespace file{
     namespace database{
         Task<Json::Value> GetEntry(uint64_t userId,uint64_t entryId);

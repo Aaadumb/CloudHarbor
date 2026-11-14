@@ -3,4 +3,8 @@ Architecture design
 backend/build
 backend/build/*
 backend/conf/config.local.json
-/runtime/*
+backend/runtime/*
+backend/runtime
+.vscode/*
+.vscode
+AGENTS.md
