@@ -47,7 +47,12 @@ elif [ ! -f "${FDFSCLIENTCONF}" ] || [ ! -r "${FDFSCLIENTCONF}" ]; then
     status=1
 fi
 
-# 检查SMTP_PASS
+# 检查发件账号和授权码
+if [ -z "${SMTP_USER:-}" ]; then
+    echo "未设置 SMTP_USER"
+    status=1
+fi
+
 if [ -z "${SMTP_PASS:-}" ]; then
     echo "未设置 SMTP_PASS"
     status=1

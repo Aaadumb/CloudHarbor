@@ -1,0 +1,108 @@
+.page { display: flex; flex-direction: column; min-height: 100svh; }
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 72px;
+    padding: 18px 36px;
+}
+.logo { display: block; flex: 0 0 auto; width: 38px; height: 34px; color: var(--primary); }
+.programname { color: #1f2b3e; font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+.auth-stage {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px 100px;
+}
+.authentication {
+    width: 400px;
+    max-width: 100%;
+    padding: 24px 26px 26px;
+    background: #fff;
+    border: 1px solid #e5ebf3;
+    border-radius: 7px;
+    box-shadow: 0 3px 14px rgb(31 57 91 / 5%);
+}
+.auth-tabs {
+    position: relative;
+    display: flex;
+    margin-bottom: 26px;
+    border-bottom: 1px solid #edf0f5;
+}
+.auth-tab {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    height: 42px;
+    padding: 0;
+    color: #7e899b;
+    background: transparent;
+    border: 0;
+    font-weight: 500;
+}
+.auth-tab[aria-selected="true"] { color: var(--primary); font-weight: 600; }
+.nav-line {
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 50%;
+    height: 2px;
+    background: var(--primary);
+    transition: transform .24s ease;
+    pointer-events: none;
+}
+.authentication[data-mode="register"] .nav-line { transform: translateX(100%); }
+.auth-body { overflow: hidden; }
+.form-login, .form-register { margin: 0; }
+.login-item { margin-bottom: 18px; }
+.login-item label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 500; }
+.submit-button { width: 100%; min-height: 42px; margin-top: 4px; font-weight: 500; }
+.register-item {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.register-item label { font-size: 13px; font-weight: 500; }
+.verification-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.verification-control .field-input { flex: 1; }
+.code-button { min-height: 42px; padding: 0 10px; font-size: 12px; }
+.form-register .submit-button { margin-top: 6px; }
+.cookie-notice {
+    position: fixed;
+    z-index: 10;
+    inset: auto 0 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 12px 28px;
+    color: #4d5b70;
+    background: #fff;
+    border: 0;
+    border-top: 1px solid #dde5ef;
+}
+.cookie-notice[open] { display: flex; align-items: center; gap: 8px; }
+.cookie-text { min-width: 0; margin: 0 16px 0 0; text-align: left; font-size: 12px; }
+.cookie-button { min-width: 64px; min-height: 30px; font-size: 12px; }
+.cookie-reject { margin-left: auto; } /* 将两个按钮一起推到右侧。 */
+@media (max-width: 480px) {
+    .page-header { min-height: 64px; padding: 15px 20px; }
+    .logo { width: 33px; height: 30px; }
+    .programname { font-size: 18px; }
+    .auth-stage { padding: 24px 16px 100px; }
+    .authentication { padding: 20px; }
+    .register-item { grid-template-columns: 72px minmax(0, 1fr); gap: 10px; }
+    .register-item label { font-size: 12px; }
+    .field-input { padding: 0 9px; }
+    .code-button { padding: 0 8px; font-size: 11px; }
+    .cookie-notice { padding: 11px 16px; }
+    .cookie-text { margin-right: 6px; }
+    .cookie-button { min-width: 54px; padding: 0 10px; }
+    .toast-region { top: 72px; right: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+}

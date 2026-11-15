@@ -1,8 +1,18 @@
 #include "MailSender.h"
+#include <cstdlib>
 #include <exception>
+
+namespace {
+std::string readEnv(const char* name){
+    const char* value=std::getenv(name);
+    return value ? value : "";
+}
+}
+
 MailAwaiter::MailAwaiter(const std::string& m,const std::string& c):
-    mail(m),code(c),SMTP_PASS(getenv("SMTP_PASS")){};
+    mail(m),code(c),smtpUser(readEnv("SMTP_USER")),smtpPassword(readEnv("SMTP_PASS")){};
 bool MailAwaiter::sendCodeBlock(){
+    if(smtpUser.empty() || smtpPassword.empty())return false;
     CURL *curl=curl_easy_init();
     if(!curl)return false;
 
@@ -12,7 +22,7 @@ bool MailAwaiter::sendCodeBlock(){
     localtime_r(&now,&tmv);                                            
     strftime(date, sizeof date, "%a, %d %b %Y %H:%M:%S %z", &tmv);
     snprintf(h_date,sizeof h_date,"Date: %s",date);                     
-    snprintf(from_addr,sizeof from_addr,"<%s>",SMTP_USER);
+    snprintf(from_addr,sizeof from_addr,"<%s>",smtpUser.c_str());
     snprintf(to_addr,sizeof to_addr,"<%s>",mail.c_str());
     snprintf(h_to,sizeof h_to,"To: %s",to_addr);
     snprintf(h_from,sizeof h_from,"From: %s",from_addr);
@@ -48,8 +58,9 @@ bool MailAwaiter::sendCodeBlock(){
     }
 
     curl_easy_setopt(curl,CURLOPT_URL,SMTP_URL);
-    curl_easy_setopt(curl,CURLOPT_USERNAME,SMTP_USER);
-    curl_easy_setopt(curl,CURLOPT_PASSWORD,SMTP_PASS);
+    curl_easy_setopt(curl,CURLOPT_USERNAME,smtpUser.c_str());
+    curl_easy_setopt(curl,CURLOPT_PASSWORD,smtpPassword.c_str());
+    curl_easy_setopt(curl,CURLOPT_LOGIN_OPTIONS,"AUTH=LOGIN");
     curl_easy_setopt(curl,CURLOPT_MAIL_FROM,from_addr);
     curl_easy_setopt(curl,CURLOPT_MAIL_RCPT,rcpt);
     curl_easy_setopt(curl,CURLOPT_HTTPHEADER,header);

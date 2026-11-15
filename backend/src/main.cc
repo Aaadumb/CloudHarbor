@@ -19,7 +19,7 @@ int main(int argc,char* argv[]){
         LOG_ERROR<<"Failed to load config "<<argv[1]<<": "<<e.what();
         return EXIT_FAILURE;
     }
-    for(const char* name : {"SMTP_PASS","FDFSCLIENTCONF"}){
+    for(const char* name : {"SMTP_USER","SMTP_PASS","FDFSCLIENTCONF"}){
         const char* value=std::getenv(name);
         if(!value || *value=='\0'){
             LOG_ERROR<<"Missing environment variable "<<name;

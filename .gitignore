@@ -8,3 +8,4 @@ backend/runtime
 .vscode/*
 .vscode
 AGENTS.md
+backend/tests/unit/*/*.o

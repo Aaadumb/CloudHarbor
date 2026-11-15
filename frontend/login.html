@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+    <div class="page">
+        <header class="page-header">
+            <svg class="logo" viewBox="0 0 44 36" fill="none" aria-hidden="true">
+                <path d="M12 29H33a8 8 0 0 0 .3-16A12 12 0 0 0 10 14a7.5 7.5 0 0 0 2 15Z"
+                    stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="programname">CloudHarbor</span>
+        </header>
+    
+        <main class="auth-stage">
+            <section class="authentication" data-mode="login" aria-label="用户登录与注册">
+                <div class="auth-tabs" role="tablist" aria-label="登录与注册">
+                    <button class="auth-tab nav-login" id="login-tab" type="button" role="tab"
+                        aria-selected="true" aria-controls="login-panel" tabindex="0">登录</button>
+                    <button class="auth-tab nav-register" id="register-tab" type="button" role="tab"
+                        aria-selected="false" aria-controls="register-panel" tabindex="-1">注册</button>
+                    <span class="nav-line" aria-hidden="true"></span>
+                </div>
+    
+                <div class="auth-body core">
+                    <form class="form-login" id="login-panel" role="tabpanel" aria-labelledby="login-tab">
+                        <div class="login-item">
+                            <label for="accountname">用户名 / 邮箱</label>
+                            <input class="field-input" id="accountname" name="account" type="text"
+                                autocomplete="username" placeholder="请输入用户名或邮箱" required>
+                        </div>
+                        <div class="login-item">
+                            <label for="login-password">密码</label>
+                            <input class="field-input" id="login-password" name="password" type="password"
+                                autocomplete="current-password" placeholder="请输入密码" required>
+                        </div>
+                        <button class="btn btn-primary submit-button" type="submit">登录</button>
+                    </form>
+    
+                    <form class="form-register" id="register-panel" role="tabpanel" aria-labelledby="register-tab" hidden>
+                        <div class="register-item">
+                            <label for="register-username">用户名</label>
+                            <input class="field-input" id="register-username" name="username" type="text"
+                                autocomplete="username" placeholder="请输入用户名" required>
+                        </div>
+                        <div class="register-item">
+                            <label for="register-email">邮箱</label>
+                            <input class="field-input" id="register-email" name="email" type="email"
+                                autocomplete="email" placeholder="请输入邮箱" required>
+                        </div>
+                        <div class="register-item">
+                            <label for="register-code">邮箱验证码</label>
+                            <div class="verification-control">
+                                <input class="field-input" id="register-code" name="code" type="text"
+                                    autocomplete="one-time-code" placeholder="请输入验证码" required>
+                                <button class="btn code-button" type="button">获取验证码</button>
+                            </div>
+                        </div>
+                        <div class="register-item">
+                            <label for="register-password">密码</label>
+                            <input class="field-input" id="register-password" name="password" type="password"
+                                autocomplete="new-password" placeholder="请输入密码" required>
+                        </div>
+                        <div class="register-item">
+                            <label for="register-confirm">确认密码</label>
+                            <input class="field-input" id="register-confirm" name="confirmPassword" type="password"
+                                autocomplete="new-password" placeholder="请再次输入密码" required>
+                        </div>
+                        <p class="field-error" id="register-error" role="alert" hidden></p>
+                        <button class="btn btn-primary submit-button" type="submit">注册</button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <dialog class="cookie-notice" aria-labelledby="cookie-text">
+        <p class="cookie-text" id="cookie-text">本网站使用 Cookie</p>
+        <button class="btn cookie-button cookie-reject" type="button" data-choice="reject">拒绝</button>
+        <button class="btn btn-primary cookie-button" type="button" data-choice="accept">接受</button>
+    </dialog>
+    <div class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
