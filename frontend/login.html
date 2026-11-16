@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>CloudHarbor · 登录 / 注册</title>
     <link rel="stylesheet" href="css/base.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/login.css">
@@ -80,11 +80,12 @@
         </main>
     </div>
     
-    <dialog class="cookie-notice" aria-labelledby="cookie-text">
+    <dialog class="cookie-notice" aria-labelledby="cookie-text" autofocus>
         <p class="cookie-text" id="cookie-text">本网站使用 Cookie</p>
         <button class="btn cookie-button cookie-reject" type="button" data-choice="reject">拒绝</button>
         <button class="btn btn-primary cookie-button" type="button" data-choice="accept">接受</button>
     </dialog>
     <div class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="js/login.js"></script>
 </body>
 </html>

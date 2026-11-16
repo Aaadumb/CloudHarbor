@@ -14,7 +14,7 @@ public:
         ADD_METHOD_TO(AccountController::entry,"/",Get);
         ADD_METHOD_TO(AccountController::loginPage,"/login.html",Get);
         ADD_METHOD_TO(AccountController::indexPage,"/index.html",Get,"AuthFilter");
-        ADD_METHOD_TO(AccountController::sendCode,"/account/send_mail",Post);
+        ADD_METHOD_TO(AccountController::sendCode,"/account/send_code",Post);
         ADD_METHOD_TO(AccountController::login,"/account/login",Post);
         ADD_METHOD_TO(AccountController::registerAccount,"/account/register",Post);
         ADD_METHOD_TO(AccountController::getAccountInfo,"/account/me",Get,"AuthFilter");
