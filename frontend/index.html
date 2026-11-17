@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; 
+        script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+    <link rel="icon" href="assets/icons/cloud-logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <title>CloudHarbor · 文件管理首页</title> 
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <img src="assets/icons/cloud-logo.svg" class="icon" width="40px">
+            <span>CloudHarbor</span>
+        </div>
+        <button class="user-button" id="user-settings" type="button" aria-label="打开个人设置">
+            <span class="avatar">
+                <img src="assets/images/default-avatar.png" class="icon" aria-hidden="true">
+            </span>
+            <span>哦鲸鲸</span>
+            <img src="assets/icons/chevron-down.svg" aria-hidden="true">
+        </button>
+    </header>
+    <div class="app-shell">
+        <nav class="sidebar" aria-label="主导航">
+            <button class="nav-button" type="button" data-view="home" aria-current="page">
+                <img src="assets/icons/home.svg" class="icon" aria-hidden="true">
+                首页
+            </button>
+            <button class="nav-button" type="button" data-view="home" aria-current="page">
+                <img src="assets/icons/upload.svg" class="icon" aria-hidden="true">
+                上传进度
+            </button>
+            <button class="nav-button" type="button" data-view="home" aria-current="page">
+                <img src="assets/icons/settings.svg" class="icon" aria-hidden="true">
+                设置
+            </button>
+        </nav>
+        <main class="main">
+            <section id="view-home" aria-label="文件管理首页">
+                <h1 class="sr-only">文件管理首页</h1>
+                <div class="toolbar">
+                    <div class="menu-wrap">
+                        <button id="upload-toggle" class="btn btn-primary" type="button"
+                            aria-expanded="false" aria-controls="upload-menu">
+                            上传
+                            <img src="assets/icons/chevron-down.svg" class="icon" aria-hidden="true">
+                        </button>
+                        <div id="upload-menu" class="menu upload-menu" hidden>
+                            <button type="button" data-pick="files">上传文件</button>
+                            <button type="button" data-pick="folder">上传文件夹</button>
+                        </div>
+                    </div>
+                    <button id="new-folder" class="btn" type="button">新建文件夹</button>
+                    <button id="delete-selected" class="btn" type="button">删除</button>
+                    <button id="download-selected" class="btn" type="button">下载</button>
+                    <button id="move-selected" class="btn" type="button">移动</button>
+                    <button id="copy-selected" class="btn" type="button">复制</button>
+                </div>
+                <div class="ptn-row">
+                    <span class="path-label">当前位置: </span>
+                    <nav class="breadcrumbs" id="breadcrumbs" aria-label="目录路径"></nav>
+                    <button id="go-parent" class="btn" type="button">
+                        <img src="assets/icons/arrow-left.svg" class="icon" aria-hidden="true">
+                        返回上一级
+                    </button>
+                </div>
+                <table class="file-table">
+                    <caption class="sr-only">当前目录的文件与文件夹</caption>
+                    <colgroup>
+                        <col>
+                        <col>
+                        <col>
+                        <col>
+                        <col>
+                        <col>
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th scope="col"><input id="select-all" type="checkbox" aria-label="全选当前目录"></th>
+                            <th scope="col">名称</th>
+                            <th scope="col">大小</th>
+                            <th scope="col" class="type-cell">类型</th>
+                            <th scope="col" class="time-cell">修改时间</th>
+                            <th scope="col"><span class="sr-only"></span>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-list"></tbody>
+                </table>
+                <div class="directory-empty" class="empty-state" hidden>
+                    <img src="assets/icons/folder.svg" class="icon" aria-hidden="true">
+                    <h2>此文件夹为空</h2>
+                    <p class="muted">可以上传文件或新建文件夹</p>
+                </div>
+                <div class="table-footer">
+                    <span id="file-count"></span>
+                    <span id="selection-count" aria-live="polite"></span>
+                </div>
+            </section>
+            <section id="view-uploads" aria-labelledby="uploads-title" hidden>
+                <h1 id="uploads-title">上传进度</h1>
+                <div class="empty-state">
+                    <img src="assets/icons/upload.svg" class="icon" aria-hidden="true">
+                    <h2>暂无上传任务</h2>
+                    <button class="btn btn-primary" id="uploads-choose" type="button">
+                        选择文件
+                    </button>
+                </div>
+            </section>
+            <section id="view-settings" aria-labelledby="settings-title" hidden>
+                <h1 class="settings-title" id="settings-title">个人设置</h1>
+                <div class="settings-card">
+                    <div class="avatar-zone">
+                        <button class="avatar-picker" id="avatar-picker" type="button" aria-label="选择新头像">
+                            <span class="avatar large-avatar">
+                                <img src="assets/images/default-avatar.png" class="icon" 
+                                    id="default-avatar" aria-hidden="true">
+                            </span>
+                            <span class="camera">
+                                <img src="assets/icons/camera.svg" class="icon" aria-hidden="true">
+                            </span>
+                            <span>更换头像</span>
+                        </button>
+                    </div>
+                    <div class="profile-row">
+                        <span>用户名</span>
+                        <span class="profile-value">哦鲸鲸</span>
+                        <button class="text-button" data-edit="name" type="button">
+                            更改
+                            <span class="sr-only">用户名</span>
+                        </button>
+                    </div>
+                    <div class="profile-row">
+                        <span>邮箱</span>
+                        <span class="profile-value">114514@666.com</span>
+                        <button class="text-button" data-edit="mail" type="button">
+                            更改
+                            <span class="sr-only">邮箱</span>
+                        </button>
+                    </div>
+                    <div class="profile-row">
+                        <span>密码</span>
+                        <span class="profile-value" aria-label="密码已隐藏">••••••••</span>
+                        <button class="text-button" type="button">
+                            修改
+                            <span class="sr-only">密码</span>
+                        </button>
+                    </div>
+                    <div class="logout-row">
+                        <button id="logout" class="btn btn-danger" type="button">
+                            退出登录
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div id="entry-menu" class="menu" style="position:fixed" hidden aria-label="条目操作">
+        <button type="button" data-action="download">下载</button>
+        <button type="button" data-action="delete">删除</button>
+        <button type="button" data-action="move">移动</button>
+        <button type="button" data-action="copy">复制</button>
+    </div>
+    <input type="file" id="file-input" multiple hidden>
+    <input type="file" id="folder-input" webkitdirecotry multiple hidden>
+    <input type="file" id="avatar-input" accept="image/png,image/jpeg" hidden>
+    <dialog id="upload-dialog" aria-labelledby="upload-title">
+        <div class="dialog-header">
+            <h2 id="upload-title">确认上传</h2>
+            <button class="close-button" type="button" data-close="upload-dialog" aria-label="关闭上传确认">
+                <img src="assets/icons/close.svg" class="icon" aria-hidden="true">
+            </button>
+        </div>
+        <div class="dialog-body">
+            <div class="upload-tabs" role="tablist" aria-label="上传方式">
+                <button type="button" role="tab" id="files-tab"
+                    aria-selected="true" aria-controls="upload-panel" data-upload-mode="files">
+                    上传文件
+                </button>
+                <button type="button" role="tab" id="folder-tab" 
+                    aria-selected="false" aria-controls="upload-panel" data-upload-mode="folder">
+                    上传文件夹
+                </button>
+            </div>
+            <div id="upload-panel" role="tabpanel" aria-labelledby="files-tab">
+                <p class="upload-target">上传到: <strong id="upload-target"></strong></p>
+                <p>是否确认上传以下文件</p>
+                <div class="upload-list" id="upload-list"></div>
+                <p id="upload-summary" class="hint"></p>
+                <p id="folder-hint" class="hint" hidden>文件夹层次来自所选文件 空文件夹暂不包含在选择结果中</p>
+                <button id="choose-again" type="button" class="text-button">重新选择</button>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn" type="button" data-close="upload-dialog">取消</button>
+                <button id="confirm-upload" class="btn btn-primary" type="button">确认上传</button>
+            </div>
+        </div>
+    </dialog>
+    <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+        <div class="dialog-header">
+            <h2 id="confirm-title"></h2>
+            <button class="close-button" type="button" 
+                data-close="confirm-dialog" aria-label="关闭确认对话框">
+                <img src="assets/icons/close.svg" class="icon" aria-hidden="true">
+            </button>
+        </div>
+        <div class="dialog-body">
+            <p id="confirm-description"></p>
+            <ul id="confirm-list" class="confirm-list"></ul>
+            <div class="dialog-footer">
+                <button class="btn" type="button" data-close="confirm-dialog">取消</button>
+                <button id="confirm-action" class="btn btn-primary" type="button">确认</button>
+            </div>
+        </div>
+    </dialog>
+    <dialog class="edit-dialog" aria-labelledby="edit-title">
+        <div class="dialog-header">
+            <h2 id="edit-title"></h2>
+            <button class="close-button" type="button" data-close="edit-dialog"
+                aria-label="关闭资料编辑">
+                <img src="assets/icons/close.svg" class="icon" aria-hidden="true">
+            </button>
+        </div>
+        <form id="edit-form" class="dialog-body">
+            <div id="edit-fields"></div>
+            <div class="dialog-footer">
+                <button class="btn" type="button" data-close="edit-dialog">取消</button>
+                <button class="btn btn-primary" type="submit">确认修改</button>
+            </div>
+        </form>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

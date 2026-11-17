@@ -17,7 +17,8 @@
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgb(22 119 255 / 10%);
 }
-.field-input:user-invalid { border-color: #e25353; }
+.field-input:user-invalid,
+.field-input[aria-invalid="true"] { border-color: #e25353; }
 .btn {
     display: inline-flex;
     align-items: center;
@@ -46,16 +47,28 @@
 .toast-region {
     position: fixed;
     z-index: 20;
-    top: 84px;
-    right: 24px;
-    width: min(360px, calc(100% - 32px));
+    top: 54px;
+    right: 0px;
+    /* width: min(360px, calc(100% - 32px)); */
+    width:0px;
     pointer-events: none;
+    overflow: visible;
+}
+@keyframes move{
+    from { transform: translateX(0px); }
+    to   { transform: translateX(calc(-100% - 10px)); }
 }
 .toast {
-    padding: 12px 16px;
-    color: #46546a;
-    background: #fff;
+    padding: 12px 5px;
+    color: #f8fcfb;
     border: 1px solid #dce6f3;
     border-radius: 6px;
-    box-shadow: 0 6px 24px rgb(34 56 88 / 10%);
+    /* box-shadow: 0 6px 24px rgb(34 56 88 / 10%); */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: move .3s ease 0s 1 forwards;
+    min-width: 200px;
 }
+.toast[data-status="success"]{ background-color: #0eb27c; }
+.toast[data-status="failure"]{ background-color: #dc2626; }

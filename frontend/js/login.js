@@ -1,5 +1,5 @@
-import { postJson } from "./api/http.js";
 import { sendRegisterCode,login,register } from "./api/auth.js";
+import { showToast } from "./ui/toast.js";
 const cookieDialog=document.querySelector(".cookie-notice")
 const authTabs=document.querySelectorAll(".auth-tab")
 const authentication=document.querySelector(".authentication")
@@ -10,6 +10,8 @@ const confirmPassword=document.querySelector('#register-confirm')
 const password=document.querySelector('#register-password')
 const sendCodeBtn=registerForm.querySelector(".code-button")
 const mailInput=document.querySelector("#register-email")
+const toastRegion=document.querySelector(".toast-region")
+const disableSendCode=createDisableSendCode(sendCodeBtn)
 function initLoginPage(){
     initCookieNotice()
     cookieDialog.addEventListener("click",event=>{
@@ -33,6 +35,16 @@ function initLoginPage(){
             registerError.hidden=true
         })
     })
+    authentication.addEventListener('input',event=>{
+        if(event.target.matches('.field-input')){
+            event.target.removeAttribute('aria-invalid')
+        }
+    })
+    registerForm.addEventListener('reset',()=>{
+        registerForm.querySelectorAll('.field-input[aria-invalid="true"]').forEach(input=>{
+            input.removeAttribute('aria-invalid')
+        })
+    })
     loginForm.addEventListener("invalid", hideValidationBubble, true);
     registerForm.addEventListener("invalid", hideValidationBubble, true);
     loginForm.addEventListener('submit',handleLoginSubmit)
@@ -41,6 +53,12 @@ function initLoginPage(){
 }
 function hideValidationBubble(event) {
     event.preventDefault();
+}
+function showFormFailure(form,message){
+    showToast(toastRegion,message,"failure")
+    form.querySelectorAll('.field-input').forEach(input=>{
+        input.setAttribute('aria-invalid','true')
+    })
 }
 function selectMode(mode,moveFocus=false){
     const nextTab=mode==="login"?authTabs[0]:authTabs[1]
@@ -66,8 +84,8 @@ async function handleLoginSubmit(event){
     const fileds=new FormData(form)
     const auth=fileds.get('account').trim()
     const pwd=fileds.get('password')
-    if(!auth || !pwd){
-        // 弹窗提示字段不能为空
+    if(!auth){
+        showFormFailure(form,"字段不能为空")
         return
     }
     submitButton.disabled=true
@@ -75,7 +93,7 @@ async function handleLoginSubmit(event){
         await login({auth,pwd})
         window.location.assign("/index.html")
     }catch(error){
-        // 显示错误信息
+        showFormFailure(form,error.message)
     }finally{
         submitButton.disabled=false
     }
@@ -87,35 +105,65 @@ async function handleRegisterSubmit(event){
     const submitButton=form.querySelector('button[type="submit"]')
     if(submitButton.disabled)return
     const fileds=new FormData(form)
-    const name=fileds.get('username')
+    const name=fileds.get('username').trim()
     const mail=fileds.get('email')
-    const code=fileds.get('code')
+    const code=fileds.get('code').trim()
     const pwd=fileds.get('password')
     const confirmPwd=fileds.get('confirmPassword')
+    if(!name || !code){
+        showFormFailure(form,"字段不能为空")
+        return
+    }
     if(pwd!==confirmPwd){
         registerError.textContent="两次输入的密码不一致,请重新确认"
         registerError.hidden=false
-        confirmPassword.reportValidity()
         confirmPassword.focus()
         confirmPassword.value=""
         return
     }
     submitButton.disabled=true
     try{
-        await register({name,mail,code,pwd})
+        const result=await register({name,mail,code,pwd})
         // TODO: 根据返回的 data.loggedIn 决定跳转。自动登录失败时切回登录表单。
-        window.location.assign("/index.html")
+        registerForm.reset()
+        if(result.data.loggedIn){
+            window.location.assign("/index.html")
+        }else{
+            selectMode("login")
+            showToast(toastRegion,result.message,"success")
+        }
     }catch(error){
-        //显示错误信息
+        showFormFailure(form,error.message)
     }finally{
         submitButton.disabled=false
     }
 
 }
+function createDisableSendCode(button){
+    let timer=null
+    return function(time=60){
+        if(timer!=null)clearInterval(timer)
+        button.disabled=true
+        button.textContent=`获取验证码(${time}s)`
+        timer=setInterval(() => {
+            if(--time<=0){
+                clearInterval(timer)
+                timer=null
+                button.disabled=false
+                button.textContent='获取验证码'
+                return
+            }
+            button.textContent=`获取验证码(${time}s)`
+        }, 1000);
+    }
+}
 async function handleSendCode(){
     // 先拿到邮箱内容
     if(sendCodeBtn.disabled)return
     if(!mailInput.checkValidity()){
+        // showFormFailure(registerForm,"邮箱格式错误")
+        showToast(toastRegion,"邮箱格式错误","failure")
+        mailInput.focus()
         return
     }
     const mail=mailInput.value.trim()
@@ -123,9 +171,10 @@ async function handleSendCode(){
     try{
         await sendRegisterCode(mail)
         // toast
+        showToast(toastRegion,"发送成功","success")
+        disableSendCode()
     }catch(error){
-        // toast
-    }finally{
+        showFormFailure(registerForm,error.message)
         sendCodeBtn.disabled=false
     }
 }

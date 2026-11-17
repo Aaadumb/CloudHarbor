@@ -9,3 +9,5 @@ backend/runtime
 .vscode
 AGENTS.md
 backend/tests/unit/*/*.o
+# frontend/assets/*
+# frontend/assets
