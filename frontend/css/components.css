@@ -72,3 +72,52 @@
 }
 .toast[data-status="success"]{ background-color: #0eb27c; }
 .toast[data-status="failure"]{ background-color: #dc2626; }
+
+.sr-only{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.icon{
+    width: 20px;
+    height: 20px;
+    flex: none;
+    vertical-align: middle;
+}
+
+.btn:hover:not(:disabled){
+    border-color: #91b9f3;
+    background: #f5f9ff;
+}
+
+
+.btn-primary:hover:not(:disabled){
+    background: var(--primary-hover);
+    color:#fff;
+}
+
+.btn-danger{
+    color:#e34b4b;
+    border-color: #f0a7a7;
+}
+
+.btn-danger:hover:not(:disabled){
+    background:#fff4f4;
+    border-color: #e34b4b;
+}
+
+.text-button{
+    border: 0;
+    padding: 4px 6px;
+    color: var(--primary);
+    background: transparent;
+    border-radius: 3px;
+}
+.muted { color: var(--muted); }
+
+.hint { font-size: 12px; color: var(--muted); }
+

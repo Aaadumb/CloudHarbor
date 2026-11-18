@@ -6,6 +6,7 @@
     --muted: #748196;
     --border: #d8e1ed;
     --page-bg: #f3f7fb;
+    --selected: #e7f0ff;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -25,3 +26,10 @@ button:focus-visible, input:focus-visible {
     outline: 3px solid rgb(22 119 255 / 20%);
     outline-offset: 2px;
 }
+button,input{ accent-color: var(--primary); }
+button { color: inherit }
+h1,h2,p { margin: 0 }
+h1 { font-size: 21px; }
+h2 { font-size: 18px; }
+
+/* img{ width: 100%; } */
