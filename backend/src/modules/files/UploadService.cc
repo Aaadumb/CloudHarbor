@@ -1,4 +1,5 @@
 #include "UploadService.h"
+#include "NumericLimits.h"
 #include <charconv>
 #include <cstdio>
 #include <ctime>
@@ -19,8 +20,7 @@ constexpr int chunk_size=5*1024*1024;
 
 namespace{
     std::string FormatLastModified(uint64_t milliseconds){
-        constexpr uint64_t maxDatetimeMilliseconds=253402300799999ULL;
-        if(milliseconds>maxDatetimeMilliseconds)return {};
+        if(milliseconds>numeric::MaxFileModifiedMilliseconds)return {};
 
         const auto seconds=static_cast<std::time_t>(milliseconds/1000);
         std::tm utc{};
@@ -65,7 +65,8 @@ namespace{
         return response::Failure(k409Conflict,"UPLOAD_BUSY","上传任务正在处理");
     }
 
-    Task<HttpResponsePtr> LoadOwnedTask(uint64_t userId,const std::string& uploadId,Json::Value& task){
+    Task<HttpResponsePtr> LoadOwnedTask(uint64_t userId,const std::string& uploadId,Json::Value& task,
+                                      bool validateMetadata=true){
         task=co_await upload::chunk::GetTask(uploadId);
         if(!task["status"].asBool()){
             if(task["error"]==UTS_BAD_ID){
@@ -77,11 +78,21 @@ namespace{
 
         const auto& metadata=task["metadata"];
         if(metadata["owner_id"].asUInt64()!=userId)co_return UploadTaskMissing();
+        // 取消只需验证归属，允许用户清理旧版留下的超限任务。
+        if(!validateMetadata)co_return nullptr;
         const auto size=metadata["size"].asUInt64();
         const auto chunkSize=metadata["chunk_size"].asUInt64();
-        if(chunkSize==0 || metadata["total_chunks"].asUInt64()!=(size==0 ? 1 : 1+(size-1)/chunkSize)){
+        const auto totalChunks=metadata["total_chunks"].asUInt64();
+        if(size>numeric::MaxSafeInteger || chunkSize==0 || chunkSize>numeric::MaxSafeInteger ||
+           metadata["last_modified"].asUInt64()>numeric::MaxFileModifiedMilliseconds ||
+           totalChunks!=(size==0 ? 1 : 1+(size-1)/chunkSize)){
             LOG_ERROR<<"invalid upload chunk geometry:"<<uploadId;
             co_return response::InternalError(US_MSG_BAD_TASK_DATA);
+        }
+        for(const auto& index:task["uploaded_chunks"]){
+            if(!index.isUInt64() || index.asUInt64()==0 || index.asUInt64()>totalChunks){
+                co_return response::InternalError(US_MSG_BAD_TASK_DATA);
+            }
         }
         co_return nullptr;
     }
@@ -121,6 +132,9 @@ namespace{
 namespace upload{
     Task<HttpResponsePtr> UploadFile(uint64_t userId,uint64_t parentId,
                                     uint64_t lastModified,const HttpFile& file){
+        if(file.fileLength()>numeric::MaxSafeInteger){
+            co_return response::ValidationError("文件大小超出支持范围");
+        }
         const auto modifiedAt=FormatLastModified(lastModified);
         if(modifiedAt.empty()){
             co_return response::ValidationError(US_MSG_BAD_MODIFIED_TIME);
@@ -196,6 +210,9 @@ namespace upload{
 
     Task<HttpResponsePtr> InitChunkUpload(uint64_t userId,uint64_t parentId,
                                     const std::string& name,uint64_t size,uint64_t lastModified){
+        if(size>numeric::MaxSafeInteger){
+            co_return response::ValidationError("文件大小超出支持范围");
+        }
         // 总共有两次检查 一次是初始化的时候 检查是否有同名文件 一个是合并文件并完成最终上传的时候 再次检查
         // 初次检查没有同名目录 会继续尝试生成uploadid并尝试creattask 后者会把创建目录的工作一并做了
         if(FormatLastModified(lastModified).empty()){
@@ -403,7 +420,7 @@ namespace upload{
     Task<HttpResponsePtr> AskCancelUpload(uint64_t userId,std::string uploadId){
         const ChunkTaskGuard guard(uploadId);
         Json::Value task;
-        if(auto failure=co_await LoadOwnedTask(userId,uploadId,task))co_return failure;
+        if(auto failure=co_await LoadOwnedTask(userId,uploadId,task,false))co_return failure;
         const auto& metadata=task["metadata"];
         if(!guard)co_return UploadTaskBusy();
         if(metadata.isMember("cleanup") && metadata["cleanup"]!="cancel"){

@@ -3,19 +3,6 @@
 #include "AuthFilter.h"
 #include "FileService.h"
 #include "RequestJson.h"
-#include <charconv>
-
-namespace{
-    std::optional<uint64_t> ParseEntryId(const std::string& value){
-        uint64_t id=0;
-        const auto end=value.data()+value.size();
-        const auto [ptr,error]=std::from_chars(value.data(),end,id);
-        if(error!=std::errc{} || ptr!=end || id==0){
-            return std::nullopt;
-        }
-        return id;
-    }
-}
 
 Task<void> FileController::queryDirectory
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
@@ -32,12 +19,13 @@ Task<void> FileController::queryDirectory
         co_return;
     }
 
-    const auto directoryId=ParseEntryId(id->second);
+    const auto directoryId=request::ParseId(id->second);
     if(!directoryId){
         callback(response::ValidationError());
         co_return;
     }
     callback(co_await file::server::QueryDirectory(userId,*directoryId));
+    co_return;
 }
 
 
@@ -49,13 +37,14 @@ Task<void> FileController::createDirectory
         co_return;
     }
     const auto& json=*jsonptr;
-    if(!json.isMember("parentId") || !json.isMember("name")
-        || !json["parentId"].isUInt64() || !json["name"].isString()){
+    const auto parentId=request::ReadId(json["parentId"]);
+    if(!parentId || !json["name"].isString()){
         callback(response::ValidationError());
         co_return;
     }
     const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
-    callback(co_await file::server::CreateDirectory(userId,json["parentId"].asUInt64(),json["name"].asString()));
+    callback(co_await file::server::CreateDirectory(userId,*parentId,json["name"].asString()));
+    co_return;
 }
 
 
@@ -75,24 +64,45 @@ Task<void> FileController::deleteEntry
     std::vector<uint64_t> entryIds;
     entryIds.reserve(ids.size());
     for(const auto& id:ids){
-        if(!id.isUInt64() || id.asUInt64()==0){
+        const auto entryId=request::ReadId(id);
+        if(!entryId){
             callback(response::ValidationError());
             co_return;
         }
-        entryIds.push_back(id.asUInt64());
+        entryIds.push_back(*entryId);
     }
     const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
     callback(co_await file::server::DeleteEntries(userId,entryIds));
+    co_return;
 }
 
 
 Task<void> FileController::downloadFile
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
-    const auto fileId=ParseEntryId(req->getParameter("id"));
+    const auto fileId=request::ParseId(req->getParameter("id"));
     if(!fileId){
         callback(response::ValidationError());
         co_return;
     }
     const auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
     callback(co_await file::server::DownloadFile(userId,*fileId));
+    co_return;
+}
+
+Task<void> FileController::getDownloadFileUrl
+     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
+    const auto jsonptr=request::ReadJsonObject(req);
+    if(!jsonptr){
+        callback(response::ValidationError());
+        co_return;
+    }
+    const auto &json=*jsonptr;
+    const auto id=request::ReadId(json["id"]);
+    if(!id){
+        callback(response::ValidationError());
+        co_return;
+    }
+    uint64_t userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::getDownloadFileUrl(userId,*id));
+    co_return;
 }

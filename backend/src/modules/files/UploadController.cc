@@ -1,6 +1,7 @@
 #include "UploadController.h"
 #include "AuthFilter.h"
 #include "RequestJson.h"
+#include "NumericLimits.h"
 Task<void> UploadController::uploadFile
     (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
     // 都是经过filter筛选过的 保证req能对应到人
@@ -12,8 +13,11 @@ Task<void> UploadController::uploadFile
         co_return;
     }
     // 解析成功
-    const auto& parentIdPtr=parser.getOptionalParameter<uint64_t>("parentId");
-    const auto& lastModifiedPtr=parser.getOptionalParameter<uint64_t>("lastModified");
+    const auto& parentIdText=parser.getOptionalParameter<std::string>("parentId");
+    const auto parentIdPtr=parentIdText ? request::ParseId(*parentIdText) : std::nullopt;
+    const auto& lastModifiedText=parser.getOptionalParameter<std::string>("lastModified");
+    const auto lastModifiedPtr=lastModifiedText
+        ? request::ParseUnsigned(*lastModifiedText,numeric::MaxFileModifiedMilliseconds) : std::nullopt;
     if(!parentIdPtr||!lastModifiedPtr){
         callback(response::ValidationError("文件解析出错"));
         co_return;
@@ -42,14 +46,16 @@ Task<void> UploadController::initChunkUpload
         callback(response::ValidationError());
         co_return;
     }
-    if(!json["parentId"].isUInt64()||!json["name"].isString()||!json["size"].isUInt64()||!json["lastModified"].isUInt64()){
+    const auto parentId=request::ReadId(json["parentId"]);
+    const auto size=request::ReadUnsigned(json["size"],numeric::MaxSafeInteger);
+    const auto lastModified=request::ReadUnsigned(json["lastModified"],numeric::MaxFileModifiedMilliseconds);
+    if(!parentId||!json["name"].isString()||!size||!lastModified){
         callback(response::ValidationError());
         co_return;
     }
     uint64_t userId=req->getAttributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
-    uint64_t parentId=json["parentId"].asUInt64(),size=json["size"].asUInt64(),lastModified=json["lastModified"].asUInt64();
     std::string name=json["name"].asString();
-    callback(co_await upload::InitChunkUpload(userId,parentId,name,size,lastModified));
+    callback(co_await upload::InitChunkUpload(userId,*parentId,name,*size,*lastModified));
     co_return;
 }
 
@@ -63,8 +69,10 @@ Task<void> UploadController::uploadFileByChunk
     }
     // uploadid, index, chunk
     const auto& uploadIdPtr=parser.getOptionalParameter<std::string>("uploadId");
-    const auto& indexPtr=parser.getOptionalParameter<std::uint64_t>("index");
-    if(!uploadIdPtr||!indexPtr){
+    const auto& indexText=parser.getOptionalParameter<std::string>("index");
+    const auto indexPtr=indexText
+        ? request::ParseUnsigned(*indexText,numeric::MaxSafeInteger) : std::nullopt;
+    if(!uploadIdPtr||!indexPtr||*indexPtr==0){
         callback(response::ValidationError("文件解析错误"));
         co_return;
     }

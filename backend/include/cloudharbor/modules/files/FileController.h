@@ -11,10 +11,12 @@ public:
         ADD_METHOD_TO(FileController::createDirectory,"/files/create",Post,"AuthFilter");
         ADD_METHOD_TO(FileController::deleteEntry,"/files/delete",Delete,"AuthFilter");
         ADD_METHOD_TO(FileController::downloadFile,"/files/download",Get,"AuthFilter");
+        ADD_METHOD_TO(FileController::getDownloadFileUrl,"/files/download",Post,"AuthFilter");
     METHOD_LIST_END
 private:
     Task<void> queryDirectory(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> createDirectory(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> deleteEntry(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
     Task<void> downloadFile(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
+    Task<void> getDownloadFileUrl(HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback);
 };

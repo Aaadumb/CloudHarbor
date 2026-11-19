@@ -1,14 +1,8 @@
-export async function postJson(url,body, {timeoutMs=15000}={}) {
-    const requestBody=JSON.stringify(body)
-    const signal=AbortSignal.timeout(timeoutMs)
-    let response,result
+async function Fetch(request,{timeoutMs}) {
+    const signal=AbortSignal.timeout(timeoutMs);
+    let response,result;
     try{
-        response=await fetch(url,{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:requestBody,
-            signal
-        });
+        response=await fetch(request,{signal});
         result=await response.json();
     }catch(error){
         if(signal.aborted){
@@ -29,4 +23,34 @@ export async function postJson(url,body, {timeoutMs=15000}={}) {
         throw error;
     }
     return result
+}
+export async function postJson(url,body, {timeoutMs=15000}={}) {
+    const req=new Request(url,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(body)
+    })
+    return Fetch(req,{timeoutMs});
+}
+
+export async function postFormData(url,formdata,{timeoutMs=15000}={}){
+    const req=new Request(url,{
+        method:"POST",
+        body:formdata
+    })
+    return Fetch(req,{timeoutMs});
+}
+
+export async function getFetch(url,{timeoutMs=15000}={}){
+    const req=new Request(url,{method:"GET"});
+    return Fetch(req,{timeoutMs});
+}
+
+export async function deleteFetch(url,body,{timeoutMs=15000}={}) {
+    const req=new Request(url,{
+        method:"DELETE",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(body)
+    });
+    return Fetch(req,{timeoutMs});
 }

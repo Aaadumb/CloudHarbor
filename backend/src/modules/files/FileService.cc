@@ -1,4 +1,5 @@
 #include "FileService.h"
+#include "NumericLimits.h"
 #include <bit>
 #include <cctype>
 #include <exception>
@@ -50,9 +51,14 @@ namespace{
         return true;
     }
 
-    Json::Value MakePublicDirectoryData(const Json::Value& rows){
+    HttpResponsePtr MakePublicDirectoryResponse(const Json::Value& rows){
         Json::Value entries(Json::arrayValue);
         for(const auto& row:rows){
+            if(row[FR_TYPE]==FR_FILE && (!row[FR_SIZE].isUInt64() ||
+                    row[FR_SIZE].asUInt64()>numeric::MaxSafeInteger)){
+                LOG_ERROR<<"file size outside supported range: file_id="<<row[FR_ID].asString();
+                return response::InternalError(FS_MSG_SERVICE_ERROR);
+            }
             Json::Value entry;
             entry[FR_ID]=std::to_string(row[FR_ID].asUInt64());
             entry[FR_NAME]=row[FR_NAME];
@@ -65,7 +71,7 @@ namespace{
         Json::Value data;
         data[FR_STATUS]=true;
         data[FR_DATA]=std::move(entries);
-        return data;
+        return response::Success(std::move(data));
     }
 
     std::string MakeAttachmentDisposition(std::string_view name){
@@ -122,7 +128,7 @@ namespace file::server{
                 if(!res[FR_STATUS].asBool()){
                     co_return response::ServiceUnavailable();
                 }
-                co_return response::Success(MakePublicDirectoryData(res[FR_DATA]));
+                co_return MakePublicDirectoryResponse(res[FR_DATA]);
             }else{
                 Json::Value res=co_await file::database::ListChildren(userId,*path);
                 if(!res[FR_STATUS].asBool()){
@@ -132,7 +138,7 @@ namespace file::server{
                         co_return response::ServiceUnavailable();
                     }
                 }
-                co_return response::Success(MakePublicDirectoryData(res[FR_DATA]));
+                co_return MakePublicDirectoryResponse(res[FR_DATA]);
             }
         }
 
@@ -174,7 +180,7 @@ namespace file::server{
             // 正常写入
             Json::Value req;
             req[FR_STATUS]=true;
-            req[FR_ID]=res[FR_ID];
+            req[FR_ID]=std::to_string(res[FR_ID].asUInt64());
             co_return response::Success(req,HttpStatusCode::k201Created);
         }
         
@@ -252,5 +258,22 @@ namespace file::server{
             resp->addHeader("Content-Disposition",MakeAttachmentDisposition(meta[FR_NAME].asString()));
 
             co_return resp;
+        }
+        Task<HttpResponsePtr> getDownloadFileUrl(uint64_t userId,uint64_t id){
+            Json::Value meta=co_await file::database::GetEntry(userId,id);
+            if(meta[FR_ID]==-1){
+                if(meta[FR_ERROR]==FR_DB_ERROR){
+                    co_return response::ServiceUnavailable();
+                }else{
+                    co_return response::Forbidden();
+                }
+            }
+            if(meta[FR_TYPE]==FR_FOLDER){
+                co_return response::Forbidden();
+            }
+            // 文件 权限都正常 返回下载url
+            Json::Value res;
+            res["url"]="/files/download?id="+std::to_string(id);
+            co_return response::Success(res);
         }
 }

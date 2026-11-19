@@ -253,7 +253,7 @@ namespace account::server{
         data[UR_STATUS]=true;
         data[UR_NAME]=meta[UR_NAME];
         data[UR_MAIL]=meta[UR_MAIL];
-        data["rootId"]=meta[UR_ROOT];
+        data["rootId"]=std::to_string(meta[UR_ROOT].asUInt64());
         data["avatarPath"]=meta[UR_AVATAR];
         co_return response::Success(data);
     }

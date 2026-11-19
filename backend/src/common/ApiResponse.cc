@@ -43,7 +43,7 @@ namespace response{
     }
     HttpResponsePtr SuccessWithId(Json::Value id,std::string message){
         Json::Value data;
-        data["id"]=std::move(id);
+        data["id"]=id.isString() ? id.asString() : std::to_string(id.asUInt64());
         return Success(std::move(data),k200OK,std::move(message));
     }
     HttpResponsePtr Failure(const HttpStatusCode& status,const std::string &code,const std::string& message){

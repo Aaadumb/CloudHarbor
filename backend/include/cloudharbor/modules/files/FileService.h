@@ -15,5 +15,6 @@ namespace file{
         Task<HttpResponsePtr> CreateDirectory(uint64_t userId,uint64_t parentId,const std::string&name);
         Task<HttpResponsePtr> DeleteEntries(uint64_t userId,const std::vector<uint64_t>& entryIds);
         Task<HttpResponsePtr> DownloadFile(uint64_t userId,uint64_t fileId);
+        Task<HttpResponsePtr> getDownloadFileUrl(uint64_t userId,uint64_t id);
     }
 }

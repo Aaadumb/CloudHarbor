@@ -274,8 +274,7 @@ body {
 .row-actions .direct-action { visibility: hidden; }
 
 .is-selected .direct-action,
-tr:hover .direct-action,
-tr:focus-within .direct-action {
+tr:hover .direct-action{
     visibility: visible;    
 }
 
@@ -306,7 +305,8 @@ tr:focus-within .direct-action {
 .empty-state .btn { margin-top: 20px; }
 .settings-title { margin-bottom: 18px; }
 .settings-card {
-    max-width: 850px;
+    /* max-width: 850px; */
+    width:100%;
     padding: 26px 32px;
     border: 1px solid var(--border);
     border-radius: 5px;
