@@ -382,7 +382,7 @@ tr:hover .direct-action{
 .logout-row .btn { min-width: 180px; }
 
 dialog {
-    width: min(480px,calc(100%-32px));
+    width: min(480px,calc( 100% - 32px));
     max-height: calc(100dvh - 32px);
     padding: 0;
     color: var(--text);

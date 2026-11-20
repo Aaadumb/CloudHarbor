@@ -6,7 +6,9 @@ export function createDirectory({parentId,name}){
     parentId=String(parentId)
     return postJson("/files/create",{parentId,name});
 }
-
+export function deleteEntries(ids){
+    return deleteFetch('/files/delete',{entryIds:[...ids]});
+}
 export function deleteEntry(id){
     return deleteFetch("/files/delete",{entryIds:[String(id)]});
 }

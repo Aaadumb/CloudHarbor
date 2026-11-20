@@ -59,7 +59,7 @@
     to   { transform: translateX(calc(-100% - 10px)); }
 }
 .toast {
-    padding: 12px 5px;
+    padding: 12px 25px;
     color: #f8fcfb;
     border: 1px solid #dce6f3;
     border-radius: 6px;
@@ -68,7 +68,7 @@
     align-items: center;
     justify-content: center;
     animation: move .3s ease 0s 1 forwards;
-    min-width: 200px;
+    min-width: 250px;
 }
 .toast[data-status="success"]{ background-color: #0eb27c; }
 .toast[data-status="failure"]{ background-color: #dc2626; }

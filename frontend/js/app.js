@@ -1,11 +1,18 @@
 import { initFileBrowser } from "./features/file-browser.js";
-
+import { showToast } from "./ui/toast.js";
 const $ = selector => document.querySelector(selector);
+const $$=selector=> document.querySelectorAll(selector);
 const nav=document.querySelector('.sidebar')
 const navBtns=document.querySelector('.sidebar button')
 function initApp(){
-    
+    // showToast($('.toast-region'),'哦鲸鲸',"success");
     nav.addEventListener('click',showView)
+    $$('.close-button').forEach(item=>item.addEventListener('click',()=>{
+        $(`#${item.dataset.close}`).close();
+    }));
+    $$('.dialog-footer button[data-close]').forEach(item=>item.addEventListener('click',()=>{
+        $(`#${item.dataset.close}`).close();
+    }));
     initFileBrowser()
 }
 

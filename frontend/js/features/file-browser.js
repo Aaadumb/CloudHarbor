@@ -1,4 +1,4 @@
-import { getDownloadUrl, queryDirectory } from "../api/files.js";
+import { getDownloadUrl, queryDirectory,createDirectory,deleteEntries } from "../api/files.js";
 import { showToast } from "../ui/toast.js";
 const $ = selector => document.querySelector(selector);
 const $$=selector=> document.querySelectorAll(selector);
@@ -14,6 +14,10 @@ const state = {
     selectedIds: new Set()
 }
 let directoryRequest = 0;
+let directoryNavigation = 0;
+let menuEntry;
+let pendingDeleteIds = [];
+let pendingDeleteDirectoryId;
 function formatSize(bytes) {
     if (bytes === undefined) return "—";
     if (bytes < 1024) return bytes + " B";
@@ -35,6 +39,7 @@ function updateSelection(){
     selectAll.indeterminate=selected>0 && selected<total;
     $('#file-count').textContent=`共 ${total} 项`;
     $('#selection-count').textContent=selected ? `已选择 ${selected} 项` : '';
+    $$('.toolbar .btn:not(.btn-primary):not(#new-folder)').forEach(item=>{item.disabled=(state.selectedIds.size===0);})
 }
 export function createFileElement(file){
     const row=el("tr");
@@ -95,30 +100,9 @@ export function createFileElement(file){
     moreImg.src='assets/icons/more.svg'
     moreImg.setAttribute('aria-hidden','true')
     moreBtn.append(moreImg)
-    downloadBtn.addEventListener(async()=>{
-        if(file.type==="folder"){
-            showToast($('.toast-region'),"暂不支持下载文件夹","failure");
-            return;
-        }
-        let url;
-        try{
-            url=await getDownloadUrl(file.id).url;
-        }catch(error){
-            showToast($('.toast-region'),error.message,"failure");
-            return;
-        }
-        const a=el('a');
-        a.href=url;
-        document.body.append(a);
-        a.click();
-        a.remove();
-    });
-    deleteBtn.addEventListener(()=>{
-
-    });
-    moreBtn.addEventListener(()=>{
-
-    });
+    downloadBtn.addEventListener('click',async()=>{await downloadEntries([file])});
+    deleteBtn.addEventListener('click',()=>{ confirmDeleteEntries([file]); });
+    moreBtn.addEventListener('click',()=>{ openEntryMenu(file,moreBtn); });
 
     actionCell.append(downloadBtn,deleteBtn,moreBtn)
     row.append(actionCell)
@@ -131,14 +115,14 @@ export function initFileBrowser(){
         if(checked){
             // 如果被选中 file-list下所有的checkbox都要设置为选中 并且要更新set
             state.selectedIds.clear()
-            $$('#file-list input').forEach(checkbox=>{ checkbox.checked=true} );
-            $$('#file-list tr').forEach( tr => {tr.classList.add('is-selected');state.selectedIds.add(tr.dataset.id)} );
+            $$('#file-list input[type="checkbox"]').forEach(checkbox=>{ checkbox.checked=true} );
+            $$('#file-list tr[data-id]').forEach( tr => {tr.classList.add('is-selected');state.selectedIds.add(tr.dataset.id)} );
             
         }else{
             // 如果取消全选 set清空 并且file-list下的checkbox设置为未被选中状态
             state.selectedIds.clear()
-            $$('#file-list input').forEach(checkbox=>{ checkbox.checked=false} );
-            $$('#file-list tr').forEach( tr => {tr.classList.remove('is-selected')} );
+            $$('#file-list input[type="checkbox"]').forEach(checkbox=>{ checkbox.checked=false} );
+            $$('#file-list tr[data-id]').forEach( tr => {tr.classList.remove('is-selected')} );
         }
         updateSelection();
     })
@@ -147,10 +131,93 @@ export function initFileBrowser(){
         const breadcrumbs=state.breadcrumbs.slice(0,-1);
         await loadDirectory(breadcrumbs.at(-1).id,breadcrumbs);
     });
+    document.addEventListener('click',event=>{if(!event.target.closest('.menu-wrap, #entry-menu, .more-button'))closeMenus();})
+    document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenus();});
+    $('#new-folder').addEventListener('click',()=>{
+        startCreateFolder();
+    });
+    $('#confirm-dialog').addEventListener('cancel',event=>{
+        if($('#confirm-action').disabled)event.preventDefault();
+    });
+    $('#confirm-action').addEventListener('click',async ()=>{
+        const button=$('#confirm-action');
+        if(button.disabled || button.dataset.type!=='delete'){
+            return;
+        }
+        $('#confirm-dialog .close-button').disabled=$('#confirm-dialog .btn[data-close]').disabled=button.disabled=true;
+        const ids=[...pendingDeleteIds];
+        const directoryId=pendingDeleteDirectoryId;
+        const navigationId=directoryNavigation;
+        try{
+            await deleteEntries(ids);
+            showToast($('.toast-region'),'删除成功','success');
+        }catch(error){
+            showToast($('.toast-region'),error.message,'failure');
+            return;
+        }finally{
+            $('#confirm-dialog .close-button').disabled=$('#confirm-dialog .btn[data-close]').disabled=button.disabled=false;
+            $('#confirm-dialog').close();
+        }
+        await refreshDirectoryIfCurrent(directoryId,navigationId);
+    })
+
+    $('#entry-menu').addEventListener('click',event=>{
+        const button=event.target.closest('button');
+        if(!button || !menuEntry)return;
+        switch(button.dataset.action){
+            case 'download':
+                downloadEntries([menuEntry]);
+                break;
+            case 'delete':
+                confirmDeleteEntries([menuEntry]);
+                break;
+            case 'move':
+                showToast($('.toast-region'),'还没写喵~','success');
+                break;
+            case 'copy':
+                showToast($('.toast-region'),'哦鲸鲸','success');
+                break;
+        }
+        closeMenus();
+    })
+
+    $('#delete-selected').addEventListener('click',()=>{
+        const items=state.entries.filter(item=>state.selectedIds.has(item.id));
+        if(items.length===0){
+            showToast($('.toast-region'),'空操作','failure');
+            return;
+        }
+        confirmDeleteEntries(items);
+    });
+    $('#download-selected').addEventListener('click',()=>{
+        const items=state.entries.filter(item=>state.selectedIds.has(item.id));
+        if(items.length===0){
+            showToast($('.toast-region'),'空操作','failure');
+            return;
+        }
+        downloadEntries(items);
+    });
+    $('#move-selected').addEventListener('click',()=>{
+        const items=[...state.selectedIds];
+        if(items.length===0){
+            showToast($('.toast-region'),'空操作','failure');
+            return;
+        }
+        showToast($('.toast-region'),'哦鲸鲸','success');
+    });
+    $('#copy-selected').addEventListener('click',()=>{
+        const items=[...state.selectedIds];
+        if(items.length===0){
+            showToast($('.toast-region'),'空操作','failure');
+            return;
+        }
+        showToast($('.toast-region'),'哦鲸鲸','success');
+    });
     renderDirectory();
 }
 
-async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs){
+async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh=false){
+    if(!isRefresh)directoryNavigation++;
     const requestId=++directoryRequest;
     try{
         const result=await queryDirectory(directoryId);
@@ -167,35 +234,138 @@ async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs){
         showToast($('.toast-region'),error.message,"failure");
         return false;
     }
-    renderDirectory();
+    renderDirectory(isRefresh);
     return true;
 }
 
+async function refreshDirectoryIfCurrent(directoryId,navigationId){
+    if(state.currentDirectoryId===directoryId && directoryNavigation===navigationId){
+        await loadDirectory(directoryId,state.breadcrumbs,true);
+    }
+}
 
+function closeMenus(){
+    $('#upload-menu').hidden=$('#entry-menu').hidden=true;
+    $('#upload-toggle').setAttribute('aria-expanded','false');
+}
+
+function openEntryMenu(item,button){
+    closeMenus();
+    menuEntry=item;
+    const menu=$('#entry-menu');
+    const rect=button.getBoundingClientRect();
+    menu.hidden=false;
+    menu.style.left = Math.max(8, Math.min(innerWidth - 178, rect.right - 170)) + "px";
+    menu.style.top = Math.max(8, Math.min(innerHeight - menu.offsetHeight - 8, rect.bottom + 4)) + "px";
+    menu.querySelector('button').focus();
+}
 function startCreateFolder(){
-
+    closeMenus();
+    if($('#new-folder-row')){
+        $('#new-folder-name').focus();
+        return;
+    }
+    const row=el('tr');row.id='new-folder-row';
+    const cell=el('td',undefined,'new-folder-cell');cell.colSpan=6;
+    const form=el('form',undefined,'new-folder-form'),input=el('input',undefined,'field-input');
+    input.id='new-folder-name';
+    input.required=true;
+    input.maxLength=255;
+    input.placeholder='请输入文件夹名称';
+    input.setAttribute('aria-label','新文件名称');
+    const submit=el('button','确认','btn btn-primary');submit.type='submit';
+    const cancel=el('button','取消','btn');cancel.type='button';
+    cancel.addEventListener('click',()=>row.remove());
+    input.addEventListener('input',()=>input.removeAttribute("aria-invalid"));
+    input.addEventListener('keydown',event=>{if (event.key==='Escape')row.remove();});
+    form.addEventListener('submit',async event=>{
+        event.preventDefault();
+        if(submit.disabled)return;
+        const name=input.value;
+        if (!name.trim() || name === "." || name === ".." || /[\/\\\u0000-\u001f\u007f]/u.test(name)) {
+            input.setAttribute('aria-invalid','true');
+            showToast($('.toast-region'),'名称不能为空 不能是 . 或 .. 不能含路径分隔符或控制字符','failure')
+            return;
+        }else if(state.entries.some(item=>item.name===name)){
+            input.setAttribute('aria-invalid','true');
+            showToast($('.toast-region'),'存在同名文件/文件夹','failure');
+            return;
+        }
+        if(!form.reportValidity())return;
+        // 向后端发送请求
+        cancel.disabled=submit.disabled=true;
+        try{
+            await submitCreateFolder(name);
+        }finally{
+            row.remove();
+        }
+    });
+    const img=el('img',undefined,'icon');
+    img.src='assets/icons/folder.svg';
+    form.append(img,input,submit,cancel);
+    cell.append(form);
+    row.append(cell);
+    $('#file-list').prepend(row);
+    input.focus();
+    
 }
 
-function submitCreateFolder(name){
-
+async function submitCreateFolder(name){
+    const directoryId=state.currentDirectoryId;
+    const navigationId=directoryNavigation;
+    try{
+        await createDirectory({parentId:directoryId,name});
+        await refreshDirectoryIfCurrent(directoryId,navigationId);
+    }catch(error){
+        showToast($('.toast-region'),error.message,'failure');
+        return;
+    }
 }
 
-function confirmDeleteEntries(ids){
-
+function confirmDeleteEntries(items){
+    if(!items.length)return;
+    pendingDeleteIds=items.map(item=>item.id);
+    pendingDeleteDirectoryId=state.currentDirectoryId;
+    $('#confirm-title').textContent='确认删除';
+    $('#confirm-description').textContent=items.some(item=> item.type=='folder')
+        ?'是否删除以下条目? 文件夹将包含全部子内容'
+        :'是否删除以下文件?';
+    $('#confirm-list').replaceChildren(...items.map(item=>el('li',item.name)));
+    $('#confirm-list').hidden=false;
+    $('#confirm-action').textContent='确认删除'
+    $('#confirm-dialog').showModal();
+    $('#confirm-action').dataset.type='delete';
 }
 
-function downloadEntries(ids){
-
+function downloadEntries(items){
+    if(!items.length)return;
+    if(items.some(item=> item.type==="folder")){
+        showToast($('.toast-region'),'暂不支持下载文件夹','failure');
+        return;
+    }
+    items.forEach(async item=>{
+        let url;
+        try{
+            const result=await getDownloadUrl(item.id);
+            url=result.data.url;
+        }catch(error){
+            showToast($('.toast-region'),error.message,"failure");
+            return;
+        }
+        const a=el('a');
+        a.href=url;
+        document.body.append(a);
+        a.click();
+        a.remove();
+    });
 }
 
-function getCurrentDirectory(){
-
-}
-
-function renderDirectory(){
-    // 面包屑 和 file-list
+function renderDirectory(preserveNewFolder=false){
+    const newFolderRow=preserveNewFolder ? $('#new-folder-row') : null;
+    // file-list
     $('#file-list').replaceChildren();
     state.entries.forEach(item=>{$('#file-list').append(createFileElement(item));});
+    if(newFolderRow)$('#file-list').prepend(newFolderRow);
     state.selectedIds.forEach(item=>{
         $(`#file-list tr[data-id="${item}"] input`).checked=true;
         $(`#file-list tr[data-id="${item}"]`).classList.add('is-selected');
