@@ -22,5 +22,5 @@ export function updateMail(oldMail,newMail,oldCode,newCode){
 }
 
 export function getAvatar(){
-    return getFetch('/account/avatar');
+    return '/account/avatar';
 }

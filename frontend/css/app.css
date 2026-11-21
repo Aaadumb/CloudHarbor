@@ -632,3 +632,19 @@ dialog::backdrop { background:#17223580 }
         height: 76px;
     }
 }
+
+.upload-tasks { display: grid; gap: 12px; margin-top: 20px; }
+.upload-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 4px; }
+.upload-task>div { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+.upload-task progress { width: min(180px,100%); }
+.form-field { display: grid; gap: 7px; margin-bottom: 15px; }
+.app-load-error {
+    min-height: calc(100dvh - 170px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+}
+.app-load-error p { max-width: 440px; overflow-wrap: anywhere; }

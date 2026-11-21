@@ -1,34 +1,59 @@
-import { initFileBrowser } from "./features/file-browser.js";
-import { showToast } from "./ui/toast.js";
-const $ = selector => document.querySelector(selector);
-const $$=selector=> document.querySelectorAll(selector);
-const nav=document.querySelector('.sidebar')
-const navBtns=document.querySelector('.sidebar button')
-function initApp(){
-    // showToast($('.toast-region'),'哦鲸鲸',"success");
-    nav.addEventListener('click',showView)
-    $$('.close-button').forEach(item=>item.addEventListener('click',()=>{
-        $(`#${item.dataset.close}`).close();
-    }));
-    $$('.dialog-footer button[data-close]').forEach(item=>item.addEventListener('click',()=>{
-        $(`#${item.dataset.close}`).close();
-    }));
-    initFileBrowser()
-}
+import { initFileBrowser, getCurrentDirectory, refreshAfterUpload } from "./features/file-browser.js";
+import { initUpload } from "./features/upload.js";
+import { initSettings } from "./features/setting.js";
 
-function showView(event){
-    const target=event.target.closest('button')
-    const origin=$('.sidebar button[aria-current="page"]')
-    if(!target || target==origin)return
-    
-
-    $(`#view-${origin.dataset.view}`).setAttribute('hidden','')
-    $('.sidebar button[aria-current="page"]').removeAttribute("aria-current")
-    $(`#view-${target.dataset.view}`).removeAttribute('hidden')
-    target.setAttribute("aria-current","page")
-}
-
+const $=selector=>document.querySelector(selector);
+let redirecting=false;
 function redirectToLogin(){
-
+    if(redirecting)return;
+    redirecting=true;
+    location.assign("/login.html");
 }
-initApp()
+function showView(view){
+    document.querySelectorAll("[data-view]").forEach(button=>{
+        if(button.dataset.view===view)button.setAttribute("aria-current","page");
+        else button.removeAttribute("aria-current");
+    });
+    for(const name of ["home","uploads","settings"])$("#view-"+name).hidden=name!==view;
+}
+async function initApp(){
+    window.addEventListener("session-expired",redirectToLogin);
+    window.addEventListener("pageshow",event=>{if(event.persisted)location.reload();});
+    $(".sidebar").addEventListener("click",event=>{
+        const button=event.target.closest("[data-view]");
+        if(button)showView(button.dataset.view);
+    });
+    document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>{
+        document.getElementById(button.dataset.close).close();
+    }));
+    const loadError=document.createElement("div");
+    loadError.className="app-load-error";
+    loadError.hidden=true;
+    loadError.setAttribute("role","alert");
+    const errorTitle=document.createElement("h1");
+    errorTitle.textContent="页面加载失败";
+    const errorMessage=document.createElement("p");
+    errorMessage.className="muted";
+    const retry=document.createElement("button");
+    retry.type="button";
+    retry.className="btn btn-primary";
+    retry.textContent="重新加载";
+    loadError.append(errorTitle,errorMessage,retry);
+    $(".main").append(loadError);
+    retry.addEventListener("click",()=>location.reload());
+    document.querySelectorAll(".toolbar button").forEach(button=>button.disabled=true);
+    try{
+        const profile=await initSettings({onLogout:redirectToLogin});
+        document.querySelectorAll(".toolbar button").forEach(button=>button.disabled=false);
+        await initFileBrowser(profile.rootId);
+        initUpload({getCurrentDirectory,onUploadComplete:refreshAfterUpload,showView});
+        $(".user-button").addEventListener("click",()=>showView("settings"));
+    }catch(error){
+        if(redirecting)return;
+        document.querySelectorAll(".main>section").forEach(section=>section.hidden=true);
+        document.querySelectorAll(".sidebar button").forEach(button=>button.disabled=true);
+        errorMessage.textContent=error.message;
+        loadError.hidden=false;
+    }
+}
+initApp();

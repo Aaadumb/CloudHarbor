@@ -3,21 +3,18 @@ import { showToast } from "../ui/toast.js";
 const $ = selector => document.querySelector(selector);
 const $$=selector=> document.querySelectorAll(selector);
 const state = {
-    currentDirectoryId:"100",
-    breadcrumbs: [
-        { id:"100", name:"/"}
-    ],
-    entries: [
-        { id: "103", parent: "100", name: "需求分析.md", type: "file", size: 12288, lastModified: "10-18 12:00" },
-        { id: "101", parent: "100", name: "学习资料", type: "folder" }
-    ],
+    currentDirectoryId:null,
+    breadcrumbs: [],
+    entries: [],
     selectedIds: new Set()
 }
+let rootId;
 let directoryRequest = 0;
 let directoryNavigation = 0;
 let menuEntry;
 let pendingDeleteIds = [];
 let pendingDeleteDirectoryId;
+
 function formatSize(bytes) {
     if (bytes === undefined) return "—";
     if (bytes < 1024) return bytes + " B";
@@ -41,7 +38,7 @@ function updateSelection(){
     $('#selection-count').textContent=selected ? `已选择 ${selected} 项` : '';
     $$('.toolbar .btn:not(.btn-primary):not(#new-folder)').forEach(item=>{item.disabled=(state.selectedIds.size===0);})
 }
-export function createFileElement(file){
+function createFileElement(file){
     const row=el("tr");
     const selectCell=el("td"),checkbox=el("input");
     row.dataset.id=file.id;
@@ -108,7 +105,10 @@ export function createFileElement(file){
     row.append(actionCell)
     return row
 }
-export function initFileBrowser(){
+export async function initFileBrowser(userRootId){
+    rootId=userRootId;
+    state.currentDirectoryId=rootId;
+    state.breadcrumbs=[{id:rootId,name:"/"}];
     $('#select-all').addEventListener('click',()=>{
         const checked=$('#select-all').checked
         // console.log($$('#file-list tr'))
@@ -172,10 +172,10 @@ export function initFileBrowser(){
                 confirmDeleteEntries([menuEntry]);
                 break;
             case 'move':
-                showToast($('.toast-region'),'还没写喵~','success');
+                showToast($('.toast-region'),'移动功能暂未开放','failure');
                 break;
             case 'copy':
-                showToast($('.toast-region'),'哦鲸鲸','success');
+                showToast($('.toast-region'),'该功能暂未开放','failure');
                 break;
         }
         closeMenus();
@@ -203,7 +203,7 @@ export function initFileBrowser(){
             showToast($('.toast-region'),'空操作','failure');
             return;
         }
-        showToast($('.toast-region'),'哦鲸鲸','success');
+        showToast($('.toast-region'),'该功能暂未开放','failure');
     });
     $('#copy-selected').addEventListener('click',()=>{
         const items=[...state.selectedIds];
@@ -211,12 +211,32 @@ export function initFileBrowser(){
             showToast($('.toast-region'),'空操作','failure');
             return;
         }
-        showToast($('.toast-region'),'哦鲸鲸','success');
+        showToast($('.toast-region'),'该功能暂未开放','failure');
     });
+
+    window.addEventListener('popstate',restoreDirectory);
     renderDirectory();
+    if(!await restoreDirectory())throw new Error("目录加载失败，请重新加载");
+}
+async function restoreDirectory(){
+    const id=new URLSearchParams(location.hash.slice(1)).get('dir');
+    const path=history.state?.breadcrumbs;
+    if(id && Array.isArray(path) && path[0]?.id===rootId && path.at(-1)?.id===id){
+        return loadDirectory(id,path,false,false);
+    }else{
+        return loadDirectory(rootId,[{id:rootId,name:"/"}],false,false);
+    }
+}
+export function getCurrentDirectory(){
+    return {id:state.currentDirectoryId,
+        path:"/"+state.breadcrumbs.slice(1).map(item=>item.name).join("/"),
+        navigationId:directoryNavigation};
+}
+export async function refreshAfterUpload(target){
+    await refreshDirectoryIfCurrent(target.id,target.navigationId);
 }
 
-async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh=false){
+async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh=false,recordHistory=true){
     if(!isRefresh)directoryNavigation++;
     const requestId=++directoryRequest;
     try{
@@ -233,6 +253,13 @@ async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh
         if(requestId!==directoryRequest)return false;
         showToast($('.toast-region'),error.message,"failure");
         return false;
+    }
+    closeMenus();
+    if(!isRefresh){
+        const url="#dir="+encodeURIComponent(directoryId);
+        const snapshot={breadcrumbs:state.breadcrumbs.map(item=>({...item}))};
+        if(recordHistory && location.hash!==url)history.pushState(snapshot,"",url);
+        else history.replaceState(snapshot,"",url);
     }
     renderDirectory(isRefresh);
     return true;
@@ -337,13 +364,13 @@ function confirmDeleteEntries(items){
     $('#confirm-action').dataset.type='delete';
 }
 
-function downloadEntries(items){
+async function downloadEntries(items){
     if(!items.length)return;
     if(items.some(item=> item.type==="folder")){
         showToast($('.toast-region'),'暂不支持下载文件夹','failure');
         return;
     }
-    items.forEach(async item=>{
+    for(const item of items){
         let url;
         try{
             const result=await getDownloadUrl(item.id);
@@ -357,7 +384,7 @@ function downloadEntries(items){
         document.body.append(a);
         a.click();
         a.remove();
-    });
+    }
 }
 
 function renderDirectory(preserveNewFolder=false){
