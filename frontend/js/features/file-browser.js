@@ -401,6 +401,12 @@ function renderDirectory(preserveNewFolder=false){
     // 更新面包屑对应项
     $('#breadcrumbs').replaceChildren();
     state.breadcrumbs.forEach((item,index)=>{
+        // 根目录按钮本身显示 /，后续子目录之间再添加分隔符。
+        if(index>1){
+            const separator=el('span','/','breadcrumb-separator');
+            separator.setAttribute('aria-hidden','true');
+            $('#breadcrumbs').append(separator);
+        }
         const button=el('button',item.name,'text-button');
         button.type='button';
         button.title=item.name;

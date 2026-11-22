@@ -63,11 +63,16 @@ body {
     height: 34px;
     border-radius: 50%;
     background: #e5eaf1;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
-.avatar .icon{
-    width: 29px;
-    height: 29px;
+.avatar > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
 }
 
 .app-shell{
@@ -164,7 +169,7 @@ body {
 .breadcrumbs {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
@@ -175,6 +180,13 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding:4px 2px;
+}
+
+.breadcrumb-separator {
+    flex-shrink: 0;
+    padding: 0 2px;
+    color: var(--primary);
 }
 
 .path-row .btn {
@@ -333,15 +345,6 @@ tr:hover .direct-action{
 .large-avatar {
     width: 76px;
     height: 76px;
-}
-.large-avatar>.icon {
-    width: 64px;
-    height: 64px;
-}
-.large-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
 }
 .camera {
     position: absolute;
@@ -633,10 +636,93 @@ dialog::backdrop { background:#17223580 }
     }
 }
 
-.upload-tasks { display: grid; gap: 12px; margin-top: 20px; }
-.upload-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 4px; }
-.upload-task>div { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-.upload-task progress { width: min(180px,100%); }
+.upload-tasks {
+    margin-top: 22px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fff;
+}
+.upload-tasks:empty { display: none; }
+.upload-task {
+    display: grid;
+    grid-template-columns: 32px minmax(140px,1fr) minmax(180px,280px) 108px;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 22px;
+    border-bottom: 1px solid #edf1f6;
+}
+.upload-task:last-child { border-bottom: 0; }
+.upload-task:hover { background: #fafcff; }
+.upload-task-icon { width: 30px; height: 34px; }
+.upload-task-details, .upload-task-transfer { min-width: 0; }
+.upload-task-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+.upload-task-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.upload-task-meta>span:first-child { flex-shrink: 0; }
+.upload-task-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-task-status {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: var(--primary);
+    font-size: 12px;
+}
+.upload-task-percent { font-variant-numeric: tabular-nums; }
+.upload-task progress {
+    display: block;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #eaf0f7;
+    color: var(--primary);
+    accent-color: var(--primary);
+}
+.upload-task progress::-webkit-progress-bar { background: #eaf0f7; border-radius: 4px; }
+.upload-task progress::-webkit-progress-value { background: var(--primary); border-radius: 4px; }
+.upload-task progress::-moz-progress-bar { background: var(--primary); border-radius: 4px; }
+.upload-task progress:indeterminate {
+    background: linear-gradient(90deg,#eaf0f7 0%,#eaf0f7 20%,#8abaff 40%,#1677ff 50%,#8abaff 60%,#eaf0f7 80%);
+    background-size: 220% 100%;
+    animation: upload-progress 1.8s linear infinite;
+}
+.upload-task progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.upload-task progress:indeterminate::-moz-progress-bar { background: transparent; }
+@keyframes upload-progress { to { background-position: -220% 0; } }
+.upload-task-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.upload-task-actions button { padding: 6px 3px; font-size: 12px; white-space: nowrap; }
+.upload-task-cancel { color: var(--muted); }
+.upload-task-cancel:hover:not(:disabled) { color: #cf3d3d; }
+.upload-task-error { margin-top: 7px; font-size: 12px; color: #cf3d3d; overflow-wrap: anywhere; }
+.upload-task.is-error .upload-task-status { color: #cf3d3d; }
+.upload-task.is-error progress { color: #dc5b5b; accent-color: #dc5b5b; }
+.upload-task.is-error progress::-webkit-progress-value { background: #dc5b5b; }
+.upload-task.is-error progress::-moz-progress-bar { background: #dc5b5b; }
+.upload-task.is-inactive .upload-task-status { color: var(--muted); }
+@media(max-width:900px) {
+    .upload-task { grid-template-columns: 28px minmax(0,1fr) 100px; gap: 12px; padding: 16px; }
+    .upload-task-icon { grid-row: 1; width: 26px; }
+    .upload-task-actions { grid-column: 3; grid-row: 1; }
+    .upload-task-transfer { grid-column: 2 / -1; }
+}
+@media(prefers-reduced-motion:reduce) {
+    .upload-task progress:indeterminate { animation: none; }
+}
 .form-field { display: grid; gap: 7px; margin-bottom: 15px; }
 .app-load-error {
     min-height: calc(100dvh - 170px);

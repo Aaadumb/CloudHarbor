@@ -1,5 +1,6 @@
 #include "UploadService.h"
 #include "NumericLimits.h"
+#include "TransactionCommitAwaiter.h"
 #include <charconv>
 #include <cstdio>
 #include <ctime>
@@ -127,6 +128,83 @@ namespace{
                      <<" file_id="<<fileId<<" mysql_state=committed error="<<e.what();
         }
     }
+
+    Task<void> QueueUnusedUpload(const std::string& storageId){
+        if(storageId.empty())co_return;
+        try{
+            co_await file::database::QueueUnusedStorage(storageId);
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=upload_cleanup_queue_failed storage_id="<<storageId<<" error="<<e.what();
+        }
+    }
+
+    Task<HttpResponsePtr> PersistUpload(uint64_t userId,const Json::Value& metadata,
+                                        const std::string& path,const std::string& uploadId={}){
+        std::string candidate;
+        TransactionPtr tx;
+        try{
+            const auto sha256=co_await upload::HashStagedFile(path);
+            if(sha256.empty())co_return response::InternalError(US_MSG_FAILED);
+
+            // A deduplication hit can be retired after the lookup. In that case retry
+            // once using a fresh FastDFS object while the staged bytes are available.
+            bool uploadContent=!(co_await file::database::HasStorageObject(sha256));
+            for(int attempt=0;attempt<2;++attempt){
+                if(uploadContent){
+                    candidate=co_await FastDfsStorage::getInstance().uploadFile(path);
+                    if(candidate.empty())co_return response::InternalError(US_MSG_FAILED);
+                }
+                tx=co_await app().getDbClient()->newTransactionCoro();
+                const auto result=co_await file::database::CreateFile(tx,userId,metadata,sha256,candidate);
+                if(result[FR_ID]==-1){
+                    tx->rollback();
+                    tx.reset();
+                    if(result[FR_ERROR]==FR_STORAGE_MISSING && !uploadContent){
+                        uploadContent=true;
+                        continue;
+                    }
+                    co_await QueueUnusedUpload(candidate);
+                    if(result[FR_ERROR]==errors::NAME_CONFLICT)co_return response::NameConflict(US_MSG_ENTRY_CONFLICT);
+                    if(result[FR_ERROR]==FR_NO_ENTRY)co_return response::NotFound(US_MSG_DIR_NOT_FOUND);
+                    co_return response::ServiceUnavailable(US_MSG_FAILED);
+                }
+
+                const auto fileId=result[FR_ID].asUInt64();
+                if(!uploadId.empty()){
+                    bool marked=false;
+                    try{
+                        marked=co_await upload::chunk::MarkTaskFinalizing(uploadId,"entry:"+std::to_string(fileId));
+                    }catch(const std::exception& e){
+                        LOG_ERROR<<"event=upload_receipt_failed upload_id="<<uploadId<<" error="<<e.what();
+                    }
+                    if(!marked){
+                        tx->rollback();
+                        tx.reset();
+                        co_await QueueUnusedUpload(candidate);
+                        co_return response::ServiceUnavailable("暂时无法提交上传任务");
+                    }
+                }
+                if(!(co_await TransactionCommitAwaiter{tx})){
+                    LOG_ERROR<<"event=upload_mysql_result_uncertain user_id="<<userId<<" file_id="<<fileId;
+                    co_await QueueUnusedUpload(candidate);
+                    co_return response::ServiceUnavailable(US_MSG_FAILED);
+                }
+                if(!candidate.empty() && candidate!=result[FR_PATH].asString()){
+                    co_await QueueUnusedUpload(candidate);
+                }
+                if(!uploadId.empty())co_await CleanupCompletedUpload(uploadId,fileId);
+                co_return response::SuccessWithId(result[FR_ID],"上传成功");
+            }
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=upload_persist_failed user_id="<<userId<<" error="<<e.what();
+        }
+        if(tx){
+            tx->rollback();
+            tx.reset();
+        }
+        co_await QueueUnusedUpload(candidate);
+        co_return response::ServiceUnavailable(US_MSG_FAILED);
+    }
 }
 
 namespace upload{
@@ -152,12 +230,13 @@ namespace upload{
             co_return response::InternalError("暂存文件失败");
         }
 
-        std::string storageId;
-        try{
-            storageId=co_await FastDfsStorage::getInstance().uploadFile(path);
-        }catch(const std::exception& e){
-            LOG_ERROR<<"FastDFS upload error:"<<e.what();
-        }
+        Json::Value metadata;
+        metadata[FR_NAME]=file.getFileName();
+        metadata[FR_FATHER]=Json::UInt64(parentId);
+        metadata[FR_SIZE]=Json::UInt64(file.fileLength());
+        metadata[FR_LAST_MODIFY]=modifiedAt;
+
+        auto result=co_await PersistUpload(userId,metadata,path);
         try{
             if(!(co_await ordinary::RemoveOrdinaryFile(path))){
                 LOG_ERROR<<"event=temp_cleanup_failed operation=ordinary_upload user_id="<<userId<<" path="<<path;
@@ -166,45 +245,7 @@ namespace upload{
             LOG_ERROR<<"event=temp_cleanup_failed operation=ordinary_upload user_id="<<userId
                      <<" path="<<path<<" error="<<e.what();
         }
-        if(storageId.empty()){
-            co_return response::InternalError("上传文件失败");
-        }
-
-        Json::Value meta;
-        meta[FR_NAME]=file.getFileName();
-        meta[FR_FATHER]=parentId;
-        meta[FR_SIZE]=file.fileLength();
-        meta[FR_LAST_MODIFY]=modifiedAt;
-        meta[FR_PATH]=storageId;
-
-        Json::Value res;
-        try{
-            res=co_await database::CreateFile(userId,std::move(meta));
-        }catch(const std::exception& e){
-            LOG_ERROR<<"event=upload_mysql_result_uncertain operation=ordinary_upload user_id="<<userId
-                     <<" storage_id="<<storageId<<" error="<<e.what();
-            co_return response::ServiceUnavailable(US_MSG_FAILED);
-        }
-        if(res[FR_ID]==-1){
-            if(res[FR_ERROR]==errors::NAME_CONFLICT){
-                try{
-                    if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
-                        LOG_ERROR<<"event=fastdfs_delete_failed operation=ordinary_upload reason=name_conflict user_id="
-                                 <<userId<<" storage_id="<<storageId;
-                    }
-                }catch(const std::exception& e){
-                    LOG_ERROR<<"event=fastdfs_delete_failed operation=ordinary_upload reason=name_conflict user_id="
-                             <<userId<<" storage_id="<<storageId<<" error="<<e.what();
-                }
-                co_return response::NameConflict(US_MSG_ENTRY_CONFLICT);
-            }
-            // 通用数据库错误可能来自写入后的断线，保留对象供后续核对。
-            LOG_ERROR<<"event=upload_mysql_result_uncertain operation=ordinary_upload user_id="<<userId
-                     <<" storage_id="<<storageId<<" error="<<res[FR_ERROR].asString();
-            co_return response::ServiceUnavailable(US_MSG_FAILED);
-        }
-        // 成功完成全部上传流程 告诉前端 同时前端应自行请求完整目录内容
-        co_return response::SuccessWithId(res[FR_ID],"上传成功");
+        co_return result;
     }
 
 
@@ -328,13 +369,33 @@ namespace upload{
             co_return response::SuccessWithId(Json::UInt64(fileId));
         }
         if(metadata.isMember(UTS_FINALIZING_ID)){
-            const auto storageId=metadata[UTS_FINALIZING_ID].asString();
-            const auto entry=co_await database::FindFileByStorageId(userId,storageId);
-            if(entry[FR_ID]==-1){
-                co_return response::ServiceUnavailable("上传提交结果待确认");
+            const auto receipt=metadata[UTS_FINALIZING_ID].asString();
+            Json::Value entry;
+            if(receipt.starts_with("entry:")){
+                const auto* end=receipt.data()+receipt.size();
+                uint64_t fileId=0;
+                const auto [ptr,ec]=std::from_chars(receipt.data()+6,end,fileId);
+                if(ec!=std::errc{} || ptr!=end || fileId==0){
+                    co_return response::InternalError(US_MSG_BAD_TASK_DATA);
+                }
+                entry=co_await database::GetEntry(userId,fileId);
+                // A commit with no visible row can be retried after clearing the receipt.
+                if(entry[FR_ID]==-1 && entry[FR_ERROR]==FR_NO_ENTRY_OR_MISMATCH){
+                    if(!(co_await chunk::ClearTaskFinalizing(uploadId,receipt))){
+                        co_return response::ServiceUnavailable("上传提交结果待确认");
+                    }
+                }else if(entry[FR_ID]==-1){
+                    co_return response::ServiceUnavailable("上传提交结果待确认");
+                }
+            }else{
+                entry=co_await database::FindFileByStorageId(userId,metadata["parent_id"].asUInt64(),
+                                                            metadata["name"].asString(),receipt);
+                if(entry[FR_ID]==-1)co_return response::ServiceUnavailable("上传提交结果待确认");
             }
-            co_await CleanupCompletedUpload(uploadId,entry[FR_ID].asUInt64());
-            co_return response::SuccessWithId(entry[FR_ID]);
+            if(entry[FR_ID]!=-1){
+                co_await CleanupCompletedUpload(uploadId,entry[FR_ID].asUInt64());
+                co_return response::SuccessWithId(entry[FR_ID]);
+            }
         }
 
         const auto totalChunks=metadata["total_chunks"].asUInt64();
@@ -361,60 +422,12 @@ namespace upload{
         if(path.empty()){
             co_return response::InternalError("合并分片失败");
         }
-        std::string storageId;
-        try{
-            storageId=co_await FastDfsStorage::getInstance().uploadFile(path);
-        }catch(const std::exception& e){
-            LOG_ERROR<<"FastDFS upload error:"<<uploadId<<" "<<e.what();
-        }
-        if(storageId.empty()){
-            co_return response::InternalError(US_MSG_FAILED);
-        }
-        if(!(co_await chunk::MarkTaskFinalizing(uploadId,storageId))){
-            // Redis 可能已经写入标记，保留它引用的对象供后续核对。
-            LOG_ERROR<<"event=upload_finalizing_mark_unconfirmed user_id="<<userId
-                     <<" upload_id="<<uploadId<<" storage_id="<<storageId;
-            co_return response::ServiceUnavailable("暂时无法提交上传任务");
-        }
-
         Json::Value filemeta;
         filemeta[FR_NAME]=name;
         filemeta[FR_SIZE]=Json::UInt64(size);
-        filemeta[FR_PATH]=storageId;
         filemeta[FR_LAST_MODIFY]=modifiedAt;
         filemeta[FR_FATHER]=Json::UInt64(parentId);
-        Json::Value res;
-        try{
-            res=co_await database::CreateFile(userId,std::move(filemeta));
-        }catch(const std::exception& e){
-            LOG_ERROR<<"event=upload_mysql_result_uncertain operation=complete_upload user_id="<<userId
-                     <<" upload_id="<<uploadId<<" storage_id="<<storageId<<" error="<<e.what();
-            co_return response::ServiceUnavailable(US_MSG_FAILED);
-        }
-        if(res[FR_ID]==-1){
-            if(res[FR_ERROR]==errors::NAME_CONFLICT){
-                if(!(co_await chunk::ClearTaskFinalizing(uploadId,storageId))){
-                    LOG_ERROR<<"event=upload_finalizing_clear_unconfirmed reason=name_conflict user_id="<<userId
-                             <<" upload_id="<<uploadId<<" storage_id="<<storageId;
-                    co_return response::NameConflict(US_MSG_FILE_CONFLICT);
-                }
-                try{
-                    if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
-                        LOG_ERROR<<"event=fastdfs_delete_failed operation=complete_upload reason=name_conflict user_id="
-                                 <<userId<<" upload_id="<<uploadId<<" storage_id="<<storageId;
-                    }
-                }catch(const std::exception& e){
-                    LOG_ERROR<<"event=fastdfs_delete_failed operation=complete_upload reason=name_conflict user_id="
-                             <<userId<<" upload_id="<<uploadId<<" storage_id="<<storageId<<" error="<<e.what();
-                }
-                co_return response::NameConflict(US_MSG_FILE_CONFLICT);
-            }
-            LOG_ERROR<<"event=upload_mysql_result_uncertain operation=complete_upload user_id="<<userId
-                     <<" upload_id="<<uploadId<<" storage_id="<<storageId<<" error="<<res[FR_ERROR].asString();
-            co_return response::ServiceUnavailable(US_MSG_FAILED);
-        }
-        co_await CleanupCompletedUpload(uploadId,res[FR_ID].asUInt64());
-        co_return response::SuccessWithId(res[FR_ID]);
+        co_return co_await PersistUpload(userId,filemeta,path,uploadId);
     }
 
     Task<HttpResponsePtr> AskCancelUpload(uint64_t userId,std::string uploadId){

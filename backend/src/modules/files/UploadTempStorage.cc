@@ -3,6 +3,7 @@
 #include <array>
 #include <cerrno>
 #include <charconv>
+#include <sodium.h>
 #include <type_traits>
 
 namespace {
@@ -138,6 +139,26 @@ namespace upload::ordinary{
         }};
         co_return co_await awaiter;
     }
+}
+
+Task<std::string> upload::HashStagedFile(const std::string& path){
+    OrdinaryFileAwaiter awaiter{[&path]() -> std::string{
+        std::ifstream input(path,std::ios::binary);
+        if(!input)return {};
+        crypto_hash_sha256_state state;
+        crypto_hash_sha256_init(&state);
+        std::array<unsigned char,kCopyBufferSize> buffer;
+        while(input.read(reinterpret_cast<char*>(buffer.data()),buffer.size()) || input.gcount()>0){
+            crypto_hash_sha256_update(&state,buffer.data(),static_cast<unsigned long long>(input.gcount()));
+        }
+        if(!input.eof() || input.bad())return {};
+        std::array<unsigned char,crypto_hash_sha256_BYTES> digest;
+        crypto_hash_sha256_final(&state,digest.data());
+        std::array<char,2*crypto_hash_sha256_BYTES+1> hex;
+        sodium_bin2hex(hex.data(),hex.size(),digest.data(),digest.size());
+        return hex.data();
+    }};
+    co_return co_await awaiter;
 }
 
 CreateTaskDirectoryAwaiter::CreateTaskDirectoryAwaiter(const std::string&uploadId):

@@ -1,4 +1,5 @@
 #include "FileController.h"
+#include <optional>
 
 #include "AuthFilter.h"
 #include "FileService.h"
@@ -105,4 +106,51 @@ Task<void> FileController::getDownloadFileUrl
     uint64_t userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
     callback(co_await file::server::getDownloadFileUrl(userId,*id));
     co_return;
+}
+namespace {
+    struct TransferRequest{
+        uint64_t targetId;
+        std::vector<uint64_t> entryIds;
+    };
+
+    std::optional<TransferRequest> ReadTransferRequest(const HttpRequestPtr& req){
+        const auto json=request::ReadJsonObject(req);
+        if(!json)return std::nullopt;
+        const auto& ids=(*json)["entryIds"];
+        const auto& target=(*json)["targetId"];
+        if(!target.isString() || !ids.isArray() || ids.empty())return std::nullopt;
+        const auto targetId=request::ReadId(target);
+        if(!targetId)return std::nullopt;
+
+        TransferRequest result{*targetId,{}};
+        result.entryIds.reserve(ids.size());
+        for(const auto& item:ids){
+            const auto id=request::ReadId(item);
+            if(!id)return std::nullopt;
+            result.entryIds.push_back(*id);
+        }
+        return result;
+    }
+}
+
+Task<void> FileController::moveEntries
+    (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
+    const auto transfer=ReadTransferRequest(req);
+    if(!transfer){
+        callback(response::ValidationError());
+        co_return;
+    }
+    auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::MoveEntries(userId,transfer->entryIds,transfer->targetId));
+}
+
+Task<void> FileController::copyEntries
+    (HttpRequestPtr req,std::function<void(const HttpResponsePtr&)> callback){
+    const auto transfer=ReadTransferRequest(req);
+    if(!transfer){
+        callback(response::ValidationError());
+        co_return;
+    }
+    auto userId=req->attributes()->get<uint64_t>(AuthFilter::UserIdAttribute);
+    callback(co_await file::server::CopyEntries(userId,transfer->entryIds,transfer->targetId));
 }

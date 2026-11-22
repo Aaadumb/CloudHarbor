@@ -56,7 +56,7 @@ export function initUpload(options){
         const files=[...selected],destination={...target};
         const batch={directories:new Map(),blocked:new Set()};
         for(const file of files){
-            tasks.push({file,target:destination,batch,path:mode==="folder"?file.webkitRelativePath:file.name,
+            tasks.push({file,size:file.size,target:destination,batch,path:mode==="folder"?file.webkitRelativePath:file.name,
                 folder:mode==="folder",state:"排队中",progress:0,uploadId:null});
         }
         $("#upload-dialog").close();
@@ -148,6 +148,7 @@ async function runQueue(){
                 });
                 task.state="完成";
                 task.file=null;
+                tasks.splice(tasks.indexOf(task),1);
             }catch(error){
                 if(task.cancelled)await finishCancellation(task);
                 else {task.state="失败";task.error=error.message;}
@@ -169,28 +170,61 @@ function renderTasks(){
     }
     list.replaceChildren(...tasks.map(task=>{
         const row=element("div",undefined,"upload-task");
-        const details=element("div");
-        details.append(element("strong",task.path),element("p",task.target.path,"muted"),
-            element("p",task.state+(task.error?" · "+task.error:"")));
+        const failed=["失败","取消失败"].includes(task.state);
+        const inactive=["排队中","已取消"].includes(task.state);
+        if(failed)row.classList.add("is-error");
+        if(inactive)row.classList.add("is-inactive");
+        const icon=element("img",undefined,"upload-task-icon");
+        icon.src="assets/icons/file.svg";
+        icon.alt="";
+        const details=element("div",undefined,"upload-task-details");
+        const name=element("span",task.path,"upload-task-name");
+        name.title=task.path;
+        const size=task.size ?? task.file?.size;
+        const destination=element("span",task.target.path,"upload-task-target");
+        destination.title=task.target.path;
+        const metadata=element("div",undefined,"upload-task-meta");
+        metadata.append(element("span",size===undefined?"":formatBytes(size)),destination);
+        details.append(name,metadata);
+        const transfer=element("div",undefined,"upload-task-transfer");
+        const status=element("div",undefined,"upload-task-status");
+        status.append(element("span",task.state));
+        if(task.state==="上传分片")status.append(element("span",task.progress+"%","upload-task-percent"));
         const progress=element("progress");
-        progress.max=100;progress.value=task.progress;
-        progress.setAttribute("aria-label",task.path+" 已提交分片进度");
-        row.append(details,progress);
-        if(["失败","取消失败"].includes(task.state)){
-            const retry=element("button",task.state==="失败"?"重试":"重试取消","btn");
+        progress.max=100;
+        if(!["上传中","正在合并","准备上传","取消中"].includes(task.state))progress.value=task.progress;
+        progress.setAttribute("aria-label",task.path+" · "+task.state);
+        transfer.append(status,progress);
+        if(task.error){
+            const error=element("p",task.error,"upload-task-error");
+            transfer.append(error);
+        }
+        const actions=element("div",undefined,"upload-task-actions");
+        row.append(icon,details,transfer,actions);
+        if(failed){
+            const retry=element("button",task.state==="失败"?"重试":"重试取消","text-button");
             retry.type="button";
+            retry.setAttribute("aria-label",retry.textContent+" "+task.path);
             retry.addEventListener("click",()=>{
                 if(task.cancelled){finishCancellation(task);return;}
                 task.error="";task.state="排队中";renderTasks();runQueue();
             });
-            row.append(retry);
+            actions.append(retry);
         }
         if(task.file && !["已取消","完成"].includes(task.state)){
-            const cancel=element("button","取消","btn");
+            const cancel=element("button","取消","text-button upload-task-cancel");
             cancel.type="button";cancel.disabled=task.state==="取消中";
+            cancel.setAttribute("aria-label","取消上传 "+task.path);
             cancel.addEventListener("click",()=>cancelTask(task));
-            row.append(cancel);
+            actions.append(cancel);
         }
         return row;
     }));
+}
+
+function formatBytes(bytes){
+    if(bytes<1024)return bytes+" B";
+    if(bytes<1048576)return (bytes/1024).toFixed(1)+" KiB";
+    if(bytes<1073741824)return (bytes/1048576).toFixed(1)+" MiB";
+    return (bytes/1073741824).toFixed(1)+" GiB";
 }

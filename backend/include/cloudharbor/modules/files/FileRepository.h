@@ -24,6 +24,9 @@
 #define FR_NO_ENTRY "NOTEXISTS"
 #define FR_NO_ENTRY_OR_MISMATCH "NOTEXISTSORMATCH"
 #define FR_DB_ERROR "MYSQLERROR"
+#define FR_ENTRY_FORBIDDEN "ENTRYFORBIDDEN"
+#define FR_EXISTS_CONFLICT "EXISTSCONFICT"
+#define FR_STORAGE_MISSING "STORAGE_MISSING"
 #define FR_DB_LOG "mysql error:"
 
 using namespace drogon;
@@ -36,10 +39,18 @@ namespace file{
         Task<Json::Value> ListChildren(uint64_t userId,uint64_t parentId);
         Task<Json::Value> ListChildren(uint64_t userId,const std::string& path);
         Task<Json::Value> FindChildEntry(uint64_t userId,uint64_t parentId,const std::string& name);
-        Task<Json::Value> FindFileByStorageId(uint64_t userId,const std::string& storageId);
+        Task<Json::Value> FindFileByStorageId(uint64_t userId,uint64_t parentId,
+                                            const std::string& name,const std::string& storageId);
+        Task<bool> HasStorageObject(const std::string& sha256);
+        Task<void> QueueUnusedStorage(const std::string& storageId);
+        Task<Result> PendingStorageObjects(uint64_t afterId);
+        Task<bool> RemovePendingStorageObject(uint64_t id);
         Task<uint64_t> CreateRoot(const TransactionPtr& tx,uint64_t userId);
         Task<Json::Value> CreateDirectory(uint64_t userId,Json::Value metaData);
-        Task<Json::Value> CreateFile(uint64_t userId,Json::Value metadata);
+        Task<Json::Value> CreateFile(const TransactionPtr& tx,uint64_t userId,const Json::Value& metadata,
+                                     const std::string& sha256,const std::string& candidateStorageId);
         Task<Json::Value> DeleteEntries(const TransactionPtr&tx,uint64_t userId,const std::vector<uint64_t>& entryIds);
+        Task<Json::Value> MoveEntries(const TransactionPtr&tx,uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId);
+        Task<Json::Value> CopyEntries(const TransactionPtr&tx,uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId);
     }
 }

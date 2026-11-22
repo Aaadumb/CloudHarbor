@@ -58,6 +58,7 @@ public:
 };
 
 namespace upload{
+    Task<std::string> HashStagedFile(const std::string& path);
     namespace ordinary{
         // 写入并关闭文件后返回路径，保存失败返回空字符串。
         Task<std::string> SaveOrdinaryFile(HttpFile file);

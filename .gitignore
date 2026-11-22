@@ -9,5 +9,6 @@ backend/runtime
 .vscode
 AGENTS.md
 backend/tests/unit/*/*.o
+backend/conf/file-object-migration.sql
 # frontend/assets/*
 # frontend/assets

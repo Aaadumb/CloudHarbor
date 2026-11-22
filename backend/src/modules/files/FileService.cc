@@ -1,5 +1,8 @@
 #include "FileService.h"
+#include "AppError.h"
 #include "NumericLimits.h"
+#include "TransactionCommitAwaiter.h"
+#include <atomic>
 #include <bit>
 #include <cctype>
 #include <exception>
@@ -90,22 +93,19 @@ namespace{
         return value;
     }
 
-    class TransactionCommitAwaiter:public CallbackAwaiter<bool>{
-    private:
-        TransactionPtr& tx;
-    public:
-        TransactionCommitAwaiter(TransactionPtr& x):tx(x){};
-        void await_suspend(std::coroutine_handle<> handle){
-            auto loop=trantor::EventLoop::getEventLoopOfCurrentThread();
-            tx->setCommitCallback([this,loop,handle](bool commit)->void{
-                loop->queueInLoop([this,handle,commit]{
-                    setValue(commit);
-                    handle.resume();
-                });
-            });
-            tx.reset();
-        }        
-    };
+    Task<void> DeleteStoredContent(const std::string& storageId,std::string_view operation){
+        LOG_INFO<<"event=fastdfs_cleanup_started operation="<<operation<<" storage_id="<<storageId;
+        try{
+            if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
+                LOG_ERROR<<"event=fastdfs_delete_failed operation="<<operation
+                         <<" mysql_state=committed storage_id="<<storageId;
+            }
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=fastdfs_delete_failed operation="<<operation
+                     <<" mysql_state=committed storage_id="<<storageId<<" error="<<e.what();
+        }
+    }
+
 }
 namespace file::server{
         Task<HttpResponsePtr> QueryDirectory(uint64_t userId,
@@ -199,7 +199,14 @@ namespace file::server{
             // 目前一切正常 只有一种可能情况 entryids 包含根目录 但是这个在删除的时候 会顺便排查 暂时不用管
             // 先删除文件 然后再物理删除 删除文件成功就返回给用户成功
             auto tx=co_await app().getDbClient()->newTransactionCoro();
-            auto result=co_await file::database::DeleteEntries(tx,userId,entryIds);
+            Json::Value result;
+            try{
+                result=co_await file::database::DeleteEntries(tx,userId,entryIds);
+            }catch(const std::exception& e){
+                tx->rollback();
+                LOG_ERROR<<"event=delete_failed user_id="<<userId<<" error="<<e.what();
+                co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
+            }
             if(!result[FR_STATUS].asBool()){
                 // 删除失败了 就回滚
                 tx->rollback();
@@ -208,29 +215,14 @@ namespace file::server{
             bool success=co_await TransactionCommitAwaiter{tx};
             if(!success){
                 LOG_ERROR<<"event=delete_mysql_result_uncertain user_id="<<userId;
-                for(const auto& file:result[FR_DATA]){
+                for(const auto& path:result[FR_DATA]){
                     LOG_ERROR<<"event=delete_mysql_result_uncertain user_id="<<userId
-                             <<" file_id="<<file[FR_ID].asUInt64()<<" storage_id="<<file[FR_PATH].asString();
+                             <<" storage_id="<<path.asString();
                 }
                 co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
             }
-            // 要进行物理操作
-            for(const auto& file:result[FR_DATA]){
-                if(file[FR_TYPE]==FR_FOLDER)continue;
-                const auto storageId=file[FR_PATH].asString();
-                const char* logMessage="event=fastdfs_delete_failed operation=delete_entry mysql_state=committed";
-                try{
-                    if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
-                        LOG_ERROR<<logMessage<<" user_id="<<userId
-                                 <<" file_id="<<file[FR_ID].asUInt64()<<" storage_id="<<storageId;
-                    }
-                }catch(const std::exception& e){
-                    LOG_ERROR<<logMessage<<" user_id="<<userId<<" file_id="<<file[FR_ID].asUInt64()
-                             <<" storage_id="<<storageId<<" error="<<e.what();
-                }catch(...){
-                    LOG_ERROR<<logMessage<<" user_id="<<userId<<" file_id="<<file[FR_ID].asUInt64()
-                             <<" storage_id="<<storageId<<" error=unknown_exception";
-                }
+            for(const auto& path:result[FR_DATA]){
+                co_await DeleteStoredContent(path.asString(),"delete_entry");
             }
             co_return response::Success();
 
@@ -276,4 +268,77 @@ namespace file::server{
             res["url"]="/files/download?id="+std::to_string(id);
             co_return response::Success(res);
         }
+    Task<HttpResponsePtr> MoveEntries(uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId){
+        auto tx=co_await app().getDbClient()->newTransactionCoro();
+        Json::Value res=co_await file::database::MoveEntries(tx,userId,entryIds,targetId);
+        if(!res[FR_STATUS].asBool()){
+            // 一种冲突了 一种MySQL异常
+            tx->rollback();
+            if(res[FR_ERROR]==FR_DB_ERROR)co_return response::ServiceUnavailable();
+            else if(res[FR_ERROR]==FR_NO_ENTRY)co_return response::NotFound("目标目录不合法");
+            else if(res[FR_ERROR]==FR_EXISTS_CONFLICT)co_return response::NameConflict("目标目录不合法");
+            co_return response::NameConflict("重名冲突");
+        }
+        // 成功 尝试commit
+        bool success=co_await TransactionCommitAwaiter{tx};
+        if(!success){
+            LOG_ERROR<<"提交事务失败";
+            co_return response::ServiceUnavailable();
+        }
+        // 提交成功
+        co_return response::Success();
+    }
+    Task<HttpResponsePtr> CopyEntries(uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId){
+        auto tx=co_await app().getDbClient()->newTransactionCoro();
+        Json::Value result;
+        try{
+            result=co_await database::CopyEntries(tx,userId,entryIds,targetId);
+        }catch(const std::exception& e){
+            tx->rollback();
+            LOG_ERROR<<"event=copy_failed user_id="<<userId<<" error="<<e.what();
+            co_return response::ServiceUnavailable();
+        }
+        if(!result[FR_STATUS].asBool()){
+            tx->rollback();
+            if(result[FR_ERROR]==FR_NO_ENTRY)co_return response::NotFound("源条目或目标目录不存在");
+            if(result[FR_ERROR]==FR_ENTRY_FORBIDDEN)co_return response::Forbidden("根目录不能复制");
+            if(result[FR_ERROR]==errors::NAME_CONFLICT)co_return response::NameConflict("目标目录存在同名条目");
+            co_return response::ServiceUnavailable();
+        }
+        if(!(co_await TransactionCommitAwaiter{tx})){
+            LOG_ERROR<<"event=copy_mysql_result_uncertain user_id="<<userId<<" target_id="<<targetId;
+            co_return response::ServiceUnavailable();
+        }
+        co_return response::Success();
+    }
+
+    Task<void> CleanupStorageObjects(){
+        static std::atomic_flag running;
+        if(running.test_and_set())co_return;
+        struct ResetOnExit{
+            std::atomic_flag& lock;
+            ~ResetOnExit(){lock.clear();}
+        } reset{running};
+
+        static uint64_t afterId=0;
+        try{
+            const auto objects=co_await database::PendingStorageObjects(afterId);
+            if(objects.empty())afterId=0;
+            for(const auto& row:objects){
+                const auto id=row[FR_ID].as<uint64_t>();
+                const auto storageId=row["storage_id"].as<std::string>();
+                afterId=id;
+                try{
+                    if(co_await database::RemovePendingStorageObject(id)){
+                        co_await DeleteStoredContent(storageId,"storage_cleanup");
+                    }
+                }catch(const std::exception& e){
+                    LOG_ERROR<<"event=storage_record_delete_failed storage_id="<<storageId<<" error="<<e.what();
+                }
+            }
+        }catch(const std::exception& e){
+            LOG_ERROR<<"event=storage_cleanup_query_failed error="<<e.what();
+        }
+    }
+
 }

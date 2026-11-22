@@ -1,6 +1,7 @@
 #include <drogon/drogon.h>
 #include <curl/curl.h>
 #include "ApiResponse.h"
+#include "FileService.h"
 #include <sodium.h>
 #include <cstdlib>
 #include <exception>
@@ -53,6 +54,13 @@ int main(int argc,char* argv[]){
             LOG_ERROR<<"Request handler failed: "<<e.what();
             callback(app().getCustomErrorHandler()(k500InternalServerError,req));
         });
+    app().registerBeginningAdvice([]{
+        app().getLoop()->runEvery(5.0,[]{
+            async_run([]() -> Task<void>{
+                co_await file::server::CleanupStorageObjects();
+            });
+        });
+    });
     std::cout<<"服务启动成功"<<std::endl;
     app().run();
     return EXIT_SUCCESS;
