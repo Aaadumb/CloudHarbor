@@ -2,7 +2,6 @@
 #include "AppError.h"
 #include "NumericLimits.h"
 #include "TransactionCommitAwaiter.h"
-#include <atomic>
 #include <bit>
 #include <cctype>
 #include <exception>
@@ -93,15 +92,15 @@ namespace{
         return value;
     }
 
-    Task<void> DeleteStoredContent(const std::string& storageId,std::string_view operation){
-        LOG_INFO<<"event=fastdfs_cleanup_started operation="<<operation<<" storage_id="<<storageId;
+    Task<void> DeleteStoredContent(const std::string& storageId){
+        LOG_INFO<<"event=fastdfs_cleanup_started operation=delete_entry storage_id="<<storageId;
         try{
             if(!(co_await FastDfsStorage::getInstance().deleteFile(storageId))){
-                LOG_ERROR<<"event=fastdfs_delete_failed operation="<<operation
+                LOG_ERROR<<"event=fastdfs_delete_failed operation=delete_entry"
                          <<" mysql_state=committed storage_id="<<storageId;
             }
         }catch(const std::exception& e){
-            LOG_ERROR<<"event=fastdfs_delete_failed operation="<<operation
+            LOG_ERROR<<"event=fastdfs_delete_failed operation=delete_entry"
                      <<" mysql_state=committed storage_id="<<storageId<<" error="<<e.what();
         }
     }
@@ -222,7 +221,7 @@ namespace file::server{
                 co_return response::ServiceUnavailable(FS_MSG_SERVICE_ERROR);
             }
             for(const auto& path:result[FR_DATA]){
-                co_await DeleteStoredContent(path.asString(),"delete_entry");
+                co_await DeleteStoredContent(path.asString());
             }
             co_return response::Success();
 
@@ -310,35 +309,6 @@ namespace file::server{
             co_return response::ServiceUnavailable();
         }
         co_return response::Success();
-    }
-
-    Task<void> CleanupStorageObjects(){
-        static std::atomic_flag running;
-        if(running.test_and_set())co_return;
-        struct ResetOnExit{
-            std::atomic_flag& lock;
-            ~ResetOnExit(){lock.clear();}
-        } reset{running};
-
-        static uint64_t afterId=0;
-        try{
-            const auto objects=co_await database::PendingStorageObjects(afterId);
-            if(objects.empty())afterId=0;
-            for(const auto& row:objects){
-                const auto id=row[FR_ID].as<uint64_t>();
-                const auto storageId=row["storage_id"].as<std::string>();
-                afterId=id;
-                try{
-                    if(co_await database::RemovePendingStorageObject(id)){
-                        co_await DeleteStoredContent(storageId,"storage_cleanup");
-                    }
-                }catch(const std::exception& e){
-                    LOG_ERROR<<"event=storage_record_delete_failed storage_id="<<storageId<<" error="<<e.what();
-                }
-            }
-        }catch(const std::exception& e){
-            LOG_ERROR<<"event=storage_cleanup_query_failed error="<<e.what();
-        }
     }
 
 }

@@ -129,13 +129,11 @@ namespace{
         }
     }
 
-    Task<void> QueueUnusedUpload(const std::string& storageId){
-        if(storageId.empty())co_return;
-        try{
-            co_await file::database::QueueUnusedStorage(storageId);
-        }catch(const std::exception& e){
-            LOG_ERROR<<"event=upload_cleanup_queue_failed storage_id="<<storageId<<" error="<<e.what();
-        }
+    void LogUploadStorageForReview(const std::string& storageId,uint64_t userId,
+                                   const std::string& uploadId,const char* reason){
+        if(storageId.empty())return;
+        LOG_WARN<<"event=upload_storage_needs_review reason="<<reason<<" storage_id="<<storageId
+                <<" user_id="<<userId<<" upload_id="<<uploadId;
     }
 
     Task<HttpResponsePtr> PersistUpload(uint64_t userId,const Json::Value& metadata,
@@ -163,7 +161,7 @@ namespace{
                         uploadContent=true;
                         continue;
                     }
-                    co_await QueueUnusedUpload(candidate);
+                    LogUploadStorageForReview(candidate,userId,uploadId,"entry_write_failed");
                     if(result[FR_ERROR]==errors::NAME_CONFLICT)co_return response::NameConflict(US_MSG_ENTRY_CONFLICT);
                     if(result[FR_ERROR]==FR_NO_ENTRY)co_return response::NotFound(US_MSG_DIR_NOT_FOUND);
                     co_return response::ServiceUnavailable(US_MSG_FAILED);
@@ -180,17 +178,17 @@ namespace{
                     if(!marked){
                         tx->rollback();
                         tx.reset();
-                        co_await QueueUnusedUpload(candidate);
+                        LogUploadStorageForReview(candidate,userId,uploadId,"receipt_write_failed");
                         co_return response::ServiceUnavailable("暂时无法提交上传任务");
                     }
                 }
                 if(!(co_await TransactionCommitAwaiter{tx})){
                     LOG_ERROR<<"event=upload_mysql_result_uncertain user_id="<<userId<<" file_id="<<fileId;
-                    co_await QueueUnusedUpload(candidate);
+                    LogUploadStorageForReview(candidate,userId,uploadId,"mysql_commit_uncertain");
                     co_return response::ServiceUnavailable(US_MSG_FAILED);
                 }
                 if(!candidate.empty() && candidate!=result[FR_PATH].asString()){
-                    co_await QueueUnusedUpload(candidate);
+                    LogUploadStorageForReview(candidate,userId,uploadId,"duplicate_upload");
                 }
                 if(!uploadId.empty())co_await CleanupCompletedUpload(uploadId,fileId);
                 co_return response::SuccessWithId(result[FR_ID],"上传成功");
@@ -202,7 +200,7 @@ namespace{
             tx->rollback();
             tx.reset();
         }
-        co_await QueueUnusedUpload(candidate);
+        LogUploadStorageForReview(candidate,userId,uploadId,"persist_failed");
         co_return response::ServiceUnavailable(US_MSG_FAILED);
     }
 }

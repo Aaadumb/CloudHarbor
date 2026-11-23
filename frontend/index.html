@@ -10,7 +10,7 @@
     
     <link rel="stylesheet" href="css/base.css">
     <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/app.css?v=20261122-2">
+    <link rel="stylesheet" href="css/app.css?v=20261123-2">
     <title>CloudHarbor · 文件管理首页</title> 
 </head>
 <body>
@@ -216,6 +216,32 @@
             <div class="dialog-footer">
                 <button class="btn" type="button" data-close="confirm-dialog">取消</button>
                 <button id="confirm-action" class="btn btn-primary" type="button">确认</button>
+            </div>
+        </div>
+    </dialog>
+    <dialog id="transfer-dialog" aria-labelledby="transfer-title" aria-describedby="transfer-summary">
+        <div class="dialog-header">
+            <h2 id="transfer-title"></h2>
+            <button class="close-button" type="button" data-close="transfer-dialog" aria-label="关闭目标目录选择">
+                <img src="assets/icons/close.svg" class="icon" aria-hidden="true">
+            </button>
+        </div>
+        <div class="dialog-body">
+            <p id="transfer-summary" class="muted"></p>
+            <div class="transfer-location">
+                <button id="transfer-parent" class="btn" type="button">上一级</button>
+                <p class="transfer-path" tabindex="-1">目标目录 <strong id="transfer-path">/</strong></p>
+            </div>
+            <div class="transfer-browser">
+                <div id="transfer-folders" class="transfer-folders" role="group" aria-label="子文件夹"></div>
+                <div class="transfer-feedback">
+                    <p id="transfer-status" role="status"></p>
+                    <button id="transfer-retry" class="btn" type="button" hidden>重试加载</button>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn" type="button" data-close="transfer-dialog" autofocus>取消</button>
+                <button id="transfer-action" class="btn btn-primary" type="button" disabled></button>
             </div>
         </div>
     </dialog>

@@ -18,6 +18,5 @@ namespace file{
         Task<HttpResponsePtr> getDownloadFileUrl(uint64_t userId,uint64_t id);
         Task<HttpResponsePtr> MoveEntries(uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId);
         Task<HttpResponsePtr> CopyEntries(uint64_t userId,const std::vector<uint64_t>& entryIds,uint64_t targetId);
-        Task<void> CleanupStorageObjects();
     }
 }

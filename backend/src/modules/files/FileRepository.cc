@@ -265,26 +265,8 @@ namespace file::database{
     }
     Task<bool> HasStorageObject(const std::string& sha256){
         const auto rows=co_await app().getDbClient()->execSqlCoro(
-            "select 1 from file_object where sha256=unhex(?) and pending_delete=false",sha256);
+            "select 1 from file_object where sha256=unhex(?)",sha256);
         co_return !rows.empty();
-    }
-
-    Task<void> QueueUnusedStorage(const std::string& storageId){
-        // 已注册的对象（包括另一个事务已经提交的对象）保留原状态。
-        co_await app().getDbClient()->execSqlCoro(
-            "insert into file_object(storage_id,pending_delete) values(?,true) "
-            "on duplicate key update id=id",storageId);
-    }
-
-    Task<Result> PendingStorageObjects(uint64_t afterId){
-        co_return co_await app().getDbClient()->execSqlCoro(
-            "select id,storage_id from file_object where pending_delete=true and id>? order by id limit 25",afterId);
-    }
-
-    Task<bool> RemovePendingStorageObject(uint64_t id){
-        const auto result=co_await app().getDbClient()->execSqlCoro(
-            "delete from file_object where id=? and pending_delete=true and ref_count=0",id);
-        co_return result.affectedRows()==1;
     }
 
     Task<Json::Value> CreateFile(const TransactionPtr& tx,uint64_t userId,const Json::Value& metaData,
@@ -308,7 +290,7 @@ namespace file::database{
                     "on duplicate key update id=id",candidateStorageId,sha256);
             }
             const auto objects=co_await tx->execSqlCoro(
-                "select storage_id from file_object where sha256=unhex(?) and pending_delete=false for update",
+                "select storage_id from file_object where sha256=unhex(?) for update",
                 sha256);
             if(objects.empty()){
                 json[FR_ERROR]=FR_STORAGE_MISSING;
@@ -442,11 +424,11 @@ namespace file::database{
                 const auto objectSlots=placeholders(paths.size());
                 // 删除条目时触发器已扣减引用，只移除本次涉及的零引用对象。
                 const auto unreferenced=co_await tx->execSqlCoro(
-                    "select storage_id from file_object where pending_delete=true and ref_count=0 "
+                    "select storage_id from file_object where ref_count=0 "
                     "and storage_id in ("+objectSlots+") for update",std::as_const(paths));
                 if(!unreferenced.empty()){
                     const auto removed=co_await tx->execSqlCoro(
-                        "delete from file_object where pending_delete=true and ref_count=0 "
+                        "delete from file_object where ref_count=0 "
                         "and storage_id in ("+objectSlots+")",std::as_const(paths));
                     if(removed.affectedRows()!=unreferenced.size()){
                         LOG_ERROR<<"Unexpected removed storage object count, userId="<<userId;

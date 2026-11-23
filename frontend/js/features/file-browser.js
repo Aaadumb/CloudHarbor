@@ -1,4 +1,4 @@
-import { getDownloadUrl, queryDirectory,createDirectory,deleteEntries } from "../api/files.js";
+import { getDownloadUrl, queryDirectory, createDirectory, deleteEntries, moveEntries, copyEntries } from "../api/files.js";
 import { showToast } from "../ui/toast.js";
 const $ = selector => document.querySelector(selector);
 const $$=selector=> document.querySelectorAll(selector);
@@ -14,6 +14,7 @@ let directoryNavigation = 0;
 let menuEntry;
 let pendingDeleteIds = [];
 let pendingDeleteDirectoryId;
+let transfer;
 
 function formatSize(bytes) {
     if (bytes === undefined) return "—";
@@ -172,10 +173,8 @@ export async function initFileBrowser(userRootId){
                 confirmDeleteEntries([menuEntry]);
                 break;
             case 'move':
-                showToast($('.toast-region'),'移动功能暂未开放','failure');
-                break;
             case 'copy':
-                showToast($('.toast-region'),'该功能暂未开放','failure');
+                openTransferDialog(button.dataset.action, [menuEntry.id]);
                 break;
         }
         closeMenus();
@@ -198,20 +197,20 @@ export async function initFileBrowser(userRootId){
         downloadEntries(items);
     });
     $('#move-selected').addEventListener('click',()=>{
-        const items=[...state.selectedIds];
-        if(items.length===0){
-            showToast($('.toast-region'),'空操作','failure');
-            return;
-        }
-        showToast($('.toast-region'),'该功能暂未开放','failure');
+        openTransferDialog('move', [...state.selectedIds]);
     });
     $('#copy-selected').addEventListener('click',()=>{
-        const items=[...state.selectedIds];
-        if(items.length===0){
-            showToast($('.toast-region'),'空操作','failure');
-            return;
-        }
-        showToast($('.toast-region'),'该功能暂未开放','failure');
+        openTransferDialog('copy', [...state.selectedIds]);
+    });
+    $('#transfer-parent').addEventListener('click',()=>{
+        loadTransferDirectory(transfer, transfer.path.slice(0,-1));
+    });
+    $('#transfer-retry').addEventListener('click',()=>{
+        loadTransferDirectory(transfer, transfer.path);
+    });
+    $('#transfer-action').addEventListener('click', submitTransfer);
+    $('#transfer-dialog').addEventListener('cancel',event=>{
+        if(transfer?.submitting)event.preventDefault();
     });
 
     window.addEventListener('popstate',restoreDirectory);
@@ -362,6 +361,105 @@ function confirmDeleteEntries(items){
     $('#confirm-action').textContent='确认删除'
     $('#confirm-dialog').showModal();
     $('#confirm-action').dataset.type='delete';
+}
+
+function openTransferDialog(action, ids){
+    if(!ids.length)return;
+    const dialog=$('#transfer-dialog');
+    const isMove=action==='move';
+    const label=isMove?'移动':'复制';
+    transfer={ids:new Set(ids), isMove, label, sourceId:state.currentDirectoryId, submitting:false};
+
+    $('#transfer-title').textContent=`${label}到`;
+    $('#transfer-summary').textContent=`已选择 ${ids.length} 项`;
+    $('#transfer-action').textContent=`确认${label}`;
+    dialog.showModal();
+    loadTransferDirectory(transfer, [{id:rootId,name:'/'}]);
+}
+
+async function loadTransferDirectory(operation, path){
+    const dialog=$('#transfer-dialog');
+    const parent=$('#transfer-parent');
+    const confirm=$('#transfer-action');
+    const retry=$('#transfer-retry');
+    const status=$('#transfer-status');
+    const folders=$('#transfer-folders');
+    const current=path.at(-1);
+    const pathLabel=$('#transfer-path');
+    const pathText='/'+path.slice(1).map(item=>item.name).join('/');
+    pathLabel.textContent=pathText;
+    pathLabel.parentElement.title=pathText;
+    if(folders.contains(document.activeElement) ||
+        [parent,retry].includes(document.activeElement)){
+        pathLabel.parentElement.focus({preventScroll:true});
+    }
+    operation.path=path;
+    parent.disabled=confirm.disabled=true;
+    retry.hidden=true;
+    folders.replaceChildren();
+    status.textContent='正在加载目录…';
+
+    try{
+        const result=await queryDirectory(current.id);
+        if(!dialog.open || operation!==transfer)return;
+        const entries=result?.data?.data;
+        if(!Array.isArray(entries))throw new Error('服务器返回的目录数据无效');
+        for(const entry of entries){
+            if(entry.type!=='folder')continue;
+            const button=el('button',undefined,'btn');
+            button.type='button';
+            const icon=el('img',undefined,'icon');
+            icon.src='assets/icons/folder.svg';
+            icon.alt='';
+            button.append(icon,el('span',entry.name));
+            button.disabled=operation.isMove && operation.ids.has(entry.id);
+            if(button.disabled)button.title='不能移动到选中的文件夹或其子目录';
+            button.addEventListener('click',()=>{
+                loadTransferDirectory(operation, [...path,{id:entry.id,name:entry.name}]);
+            });
+            folders.append(button);
+        }
+        confirm.disabled=current.id===operation.sourceId;
+        status.textContent=folders.childElementCount?'':'没有子文件夹';
+        if(confirm.disabled)status.textContent='请选择其他目录';
+    }catch(error){
+        if(!dialog.open || operation!==transfer)return;
+        status.textContent=error.message;
+        retry.hidden=false;
+    }
+    parent.disabled=path.length<2;
+}
+
+async function submitTransfer(){
+    const confirm=$('#transfer-action');
+    if(confirm.disabled)return;
+    const operation=transfer;
+    const targetId=operation.path.at(-1).id;
+    const dialog=$('#transfer-dialog');
+    const status=$('#transfer-status');
+    const controls=[...dialog.querySelectorAll('button:not(:disabled)')];
+    const directoryId=state.currentDirectoryId;
+    const navigationId=directoryNavigation;
+
+    operation.submitting=true;
+    controls.forEach(button=>button.disabled=true);
+    status.textContent=`正在${operation.label}…`;
+    try{
+        const submit=operation.isMove?moveEntries:copyEntries;
+        await submit([...operation.ids], targetId);
+    }catch(error){
+        status.textContent=error.message;
+        return;
+    }finally{
+        operation.submitting=false;
+        controls.forEach(button=>button.disabled=false);
+        confirm.focus();
+    }
+    dialog.close();
+    showToast($('.toast-region'),`${operation.label}成功`,'success');
+    if(directoryId===targetId || directoryId===operation.sourceId){
+        await refreshDirectoryIfCurrent(directoryId,navigationId);
+    }
 }
 
 async function downloadEntries(items){

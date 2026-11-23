@@ -14,6 +14,14 @@ export function deleteEntry(id){
     return deleteFetch("/files/delete",{entryIds:[String(id)]});
 }
 
+export function moveEntries(entryIds, targetId){
+    return postJson("/files/move", {entryIds: entryIds.map(String), targetId: String(targetId)});
+}
+
+export function copyEntries(entryIds, targetId){
+    return postJson("/files/copy", {entryIds: entryIds.map(String), targetId: String(targetId)});
+}
+
 export function getDownloadUrl(id){
     return postJson('/files/download',{id:String(id)});
 }

@@ -42,9 +42,6 @@ namespace file{
         Task<Json::Value> FindFileByStorageId(uint64_t userId,uint64_t parentId,
                                             const std::string& name,const std::string& storageId);
         Task<bool> HasStorageObject(const std::string& sha256);
-        Task<void> QueueUnusedStorage(const std::string& storageId);
-        Task<Result> PendingStorageObjects(uint64_t afterId);
-        Task<bool> RemovePendingStorageObject(uint64_t id);
         Task<uint64_t> CreateRoot(const TransactionPtr& tx,uint64_t userId);
         Task<Json::Value> CreateDirectory(uint64_t userId,Json::Value metaData);
         Task<Json::Value> CreateFile(const TransactionPtr& tx,uint64_t userId,const Json::Value& metadata,
