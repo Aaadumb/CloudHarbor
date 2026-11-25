@@ -1,7 +1,10 @@
-import { getDownloadUrl, queryDirectory, createDirectory, deleteEntries, moveEntries, copyEntries } from "../api/files.js";
+import { getDownloadUrl, queryDirectory, createDirectory, deleteEntries, moveEntries, copyEntries } from "../api/files.js?v=20261125-4";
 import { showToast } from "../ui/toast.js";
 const $ = selector => document.querySelector(selector);
 const $$=selector=> document.querySelectorAll(selector);
+const directoryOrder=new Intl.Collator('zh-CN',{numeric:true});
+const skeletonDelayMs=150;
+const skeletonMinVisibleMs=250;
 const state = {
     currentDirectoryId:null,
     breadcrumbs: [],
@@ -11,6 +14,8 @@ const state = {
 let rootId;
 let directoryRequest = 0;
 let directoryNavigation = 0;
+let directoryNavigationPending=false;
+let skeletonShownAt=null;
 let menuEntry;
 let pendingDeleteIds = [];
 let pendingDeleteDirectoryId;
@@ -110,6 +115,10 @@ export async function initFileBrowser(userRootId){
     rootId=userRootId;
     state.currentDirectoryId=rootId;
     state.breadcrumbs=[{id:rootId,name:"/"}];
+    const skeletonRow=$('#directory-skeleton-row').content;
+    for(let row=0;row<6;row++){
+        $('#directory-loading').append(skeletonRow.cloneNode(true));
+    }
     $('#select-all').addEventListener('click',()=>{
         const checked=$('#select-all').checked
         // console.log($$('#file-list tr'))
@@ -215,6 +224,7 @@ export async function initFileBrowser(userRootId){
 
     window.addEventListener('popstate',restoreDirectory);
     renderDirectory();
+    $('#directory-empty').hidden=true;
     if(!await restoreDirectory())throw new Error("目录加载失败，请重新加载");
 }
 async function restoreDirectory(){
@@ -235,23 +245,65 @@ export async function refreshAfterUpload(target){
     await refreshDirectoryIfCurrent(target.id,target.navigationId);
 }
 
-async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh=false,recordHistory=true){
-    if(!isRefresh)directoryNavigation++;
-    const requestId=++directoryRequest;
+function setDirectoryNavigationPending(pending){
+    directoryNavigationPending=pending;
+    $('.file-table').inert=pending;
+    $('#view-home .toolbar').inert=pending;
+}
+
+function setDirectorySkeletonVisible(visible){
+    $('#directory-loading').hidden=!visible;
+    $('#directory-status').textContent=visible ? '正在加载目录…' : '';
+    $('#file-list').hidden=visible;
+    $('#directory-empty').hidden=visible || state.entries.length!==0;
+    $('.table-footer').hidden=visible;
+    skeletonShownAt=visible ? performance.now() : null;
+}
+
+async function queryDirectoryForNavigation(directoryId,requestId){
+    const showTimer=skeletonShownAt===null ? setTimeout(()=>{
+        if(requestId===directoryRequest)setDirectorySkeletonVisible(true);
+    },skeletonDelayMs) : undefined;
     try{
-        const result=await queryDirectory(directoryId);
+        return await queryDirectory(directoryId);
+    }finally{
+        clearTimeout(showTimer);
+        if(requestId===directoryRequest && skeletonShownAt!==null){
+            const remaining=Math.ceil(skeletonMinVisibleMs-(performance.now()-skeletonShownAt));
+            if(remaining>0)await new Promise(resolve=>setTimeout(resolve,remaining));
+        }
+    }
+}
+
+async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh=false,recordHistory=true){
+    const requestId=++directoryRequest;
+    if(!isRefresh){
+        directoryNavigation++;
+        closeMenus();
+        setDirectoryNavigationPending(true);
+    }
+    try{
+        const result=isRefresh ? await queryDirectory(directoryId) : await queryDirectoryForNavigation(directoryId,requestId);
         if(requestId!==directoryRequest)return false;
         if(!Array.isArray(result?.data?.data)){
             throw new Error("服务器返回的目录数据无效");
         }
+        state.entries=result.data.data.sort((left,right)=>{
+            if(left.type!==right.type)return left.type==='folder' ? -1 : 1;
+            return directoryOrder.compare(left.name,right.name) || directoryOrder.compare(left.id,right.id);
+        });
         state.currentDirectoryId=directoryId;
-        state.entries=result.data.data;
         state.breadcrumbs=breadcrumbs;
         state.selectedIds.clear();
     }catch(error){
         if(requestId!==directoryRequest)return false;
         showToast($('.toast-region'),error.message,"failure");
         return false;
+    }finally{
+        if(!isRefresh && requestId===directoryRequest){
+            if(skeletonShownAt!==null)setDirectorySkeletonVisible(false);
+            setDirectoryNavigationPending(false);
+        }
     }
     closeMenus();
     if(!isRefresh){
@@ -265,7 +317,7 @@ async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh
 }
 
 async function refreshDirectoryIfCurrent(directoryId,navigationId){
-    if(state.currentDirectoryId===directoryId && directoryNavigation===navigationId){
+    if(!directoryNavigationPending && state.currentDirectoryId===directoryId && directoryNavigation===navigationId){
         await loadDirectory(directoryId,state.breadcrumbs,true);
     }
 }

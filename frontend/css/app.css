@@ -238,6 +238,40 @@ body {
 
 .file-table tbody tr.is-selected { background: var(--selected);}
 
+#directory-loading tr:hover { background: transparent; }
+
+.skeleton-bar {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    width: min(100%, 44px);
+    height: 12px;
+    border-radius: 4px;
+    background: #edf1f6;
+}
+
+.skeleton-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, #fff, transparent);
+    transform: translateX(-100%);
+    animation: directory-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-check { width: 15px; height: 15px; }
+.skeleton-icon { width: 20px; height: 20px; flex: none; }
+.skeleton-name { width: 65%; max-width: 260px; }
+.skeleton-time { width: min(100%, 84px); }
+
+@keyframes directory-shimmer {
+    to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-bar::after { animation: none; }
+}
+
 .file-name {
     display: flex;
     align-items: center;

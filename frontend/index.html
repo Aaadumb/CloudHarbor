@@ -10,7 +10,7 @@
     
     <link rel="stylesheet" href="css/base.css">
     <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/app.css?v=20261123-2">
+    <link rel="stylesheet" href="css/app.css?v=20261125-1">
     <title>CloudHarbor · 文件管理首页</title> 
 </head>
 <body>
@@ -92,7 +92,22 @@
                         </tr>
                     </thead>
                     <tbody id="file-list"></tbody>
+                    <tbody id="directory-loading" aria-hidden="true" hidden></tbody>
                 </table>
+                <template id="directory-skeleton-row">
+                    <tr>
+                        <td><span class="skeleton-bar skeleton-check"></span></td>
+                        <td><div class="file-name">
+                            <span class="skeleton-bar skeleton-icon"></span>
+                            <span class="skeleton-bar skeleton-name"></span>
+                        </div></td>
+                        <td><span class="skeleton-bar"></span></td>
+                        <td class="type-cell"><span class="skeleton-bar"></span></td>
+                        <td class="time-cell"><span class="skeleton-bar skeleton-time"></span></td>
+                        <td></td>
+                    </tr>
+                </template>
+                <span id="directory-status" class="sr-only" role="status"></span>
                 <div id="directory-empty" class="empty-state" hidden>
                     <img src="assets/icons/folder.svg" class="icon" aria-hidden="true">
                     <h2>此文件夹为空</h2>
@@ -168,6 +183,7 @@
         <button type="button" data-action="copy">复制</button>
     </div>
     <input type="file" id="file-input" multiple hidden>
+    <input type="file" id="resume-file-input" hidden>
     <input type="file" id="folder-input" webkitdirectory multiple hidden>
     <input type="file" id="avatar-input" accept="image/png,image/jpeg" hidden>
     <dialog id="upload-dialog" aria-labelledby="upload-title">
@@ -263,6 +279,6 @@
     </dialog>
     <!-- <div class="toast-region" role="status" aria-live="polite" hidden></div> -->
     <div class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/app.js?v=20261125-5"></script>
 </body>
 </html>

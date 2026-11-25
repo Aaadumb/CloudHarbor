@@ -1,9 +1,10 @@
-import { uploadFile, createDirectory, cancelChunkUpload } from "../api/files.js";
+import { uploadFile, createDirectory, cancelChunkUpload, getChunkUploadStatus, requiresChunkUpload } from "../api/files.js?v=20261125-4";
 import { showToast } from "../ui/toast.js";
 const $=selector=>document.querySelector(selector);
 const tasks=[];
 let running=false,mode="files",target,selected=[];
 let context;
+let storagePrefix,resumeTarget;
 
 function element(tag,text,className){
     const node=document.createElement(tag);
@@ -16,6 +17,7 @@ function notify(message,status="failure"){
 }
 export function initUpload(options){
     context=options;
+    storagePrefix="cloudharbor:upload:"+options.rootId+":";
     $("#upload-toggle").addEventListener("click",()=>{
         const open=$("#upload-menu").hidden;
         $("#entry-menu").hidden=true;
@@ -24,6 +26,7 @@ export function initUpload(options){
     });
     document.querySelectorAll("[data-pick]").forEach(button=>button.addEventListener("click",()=>pickFile(button.dataset.pick)));
     $("#uploads-choose").addEventListener("click",()=>pickFile("files"));
+    $("#resume-file-input").addEventListener("change",resumeUpload);
     for(const kind of ["files","folder"]){
         const input=$(kind==="files"?"#file-input":"#folder-input");
         input.addEventListener("change",()=>{
@@ -64,6 +67,92 @@ export function initUpload(options){
         renderTasks();
         runQueue();
     });
+    restoreSavedTasks();
+}
+
+function rememberTask(task){
+    task.storageId??=crypto.getRandomValues(new Uint32Array(4)).join("-");
+    const {uploadId,path,size,target,file,parentId}=task;
+    try{
+        localStorage.setItem(storagePrefix+task.storageId,JSON.stringify({
+            uploadId,path,size,parentId,target:{id:target.id,path:target.path},
+            name:file.name,lastModified:file.lastModified
+        }));
+    }catch{
+        task.error="无法保存续传记录，刷新后可能无法找回";
+        notify("浏览器无法保存续传记录，关闭页面后可能无法找回此任务");
+    }
+}
+
+function forgetSavedTask(task){
+    if(!task.storageId)return;
+    try{
+        localStorage.removeItem(storagePrefix+task.storageId);
+    }catch{
+        notify("浏览器无法移除本地续传记录");
+    }
+}
+
+async function restoreSavedTasks(){
+    const restored=[];
+    try{
+        for(const key of Object.keys(localStorage)){
+            if(!key.startsWith(storagePrefix))continue;
+            let task;
+            try{task=JSON.parse(localStorage.getItem(key));}
+            catch{continue;}
+            if(!task || (task.uploadId!==null && !/^[0-9a-f]{32}$/.test(task.uploadId)) ||
+                typeof task.name!=="string" || typeof task.path!=="string" ||
+                !Number.isSafeInteger(task.size) || task.size<=0 || !Number.isSafeInteger(task.lastModified) ||
+                typeof task.parentId!=="string" || typeof task.target?.id!=="string" ||
+                typeof task.target.path!=="string")continue;
+            restored.push({...task,storageId:key.slice(storagePrefix.length),
+                state:task.uploadId?"正在检查":"待重新上传",progress:0});
+        }
+    }catch{
+        notify("浏览器无法读取本地续传记录");
+    }
+    if(!restored.length)return;
+    tasks.push(...restored);
+    renderTasks();
+    for(const task of restored){
+        if(!task.uploadId)continue;
+        try{
+            const {data}=await getChunkUploadStatus(task.uploadId);
+            if(Array.isArray(data.uploadedChunks) && data.totalChunks>0){
+                task.progress=Math.floor(data.uploadedChunks.length/data.totalChunks*100);
+            }
+        }catch(error){
+            if(error.code==="UPLOAD_NOT_FOUND"){
+                forgetSavedTask(task);
+                tasks.splice(tasks.indexOf(task),1);
+                renderTasks();
+                continue;
+            }
+            task.error=error.message;
+        }
+        task.state="待续传";
+        renderTasks();
+    }
+}
+
+function resumeUpload(event){
+    const input=event.currentTarget;
+    const file=input.files[0],task=resumeTarget;
+    input.value="";
+    resumeTarget=null;
+    if(!file || !["待续传","待重新上传"].includes(task?.state))return;
+    if(file.name!==task.name || file.size!==task.size || file.lastModified!==task.lastModified){
+        notify("请选择原文件，文件名、大小和修改时间需要一致");
+        return;
+    }
+    const current=context.getCurrentDirectory();
+    if(current.id===task.parentId || current.id===task.target.id)task.refreshTarget=current;
+    task.file=file;
+    task.error="";
+    task.state="排队中";
+    renderTasks();
+    runQueue();
 }
 function pickFile(kind,keepTarget=false){
     mode=kind;
@@ -118,15 +207,22 @@ async function cancelTask(task){
     if(!running || !task.controller)await finishCancellation(task);
 }
 async function finishCancellation(task){
+    task.state="取消中";
+    renderTasks();
     try{
         if(task.uploadId)await cancelChunkUpload(task.uploadId);
-        task.state="已取消";
-        if(task.controller && !task.uploadId)task.error="请求已停止，请以目录查询结果确认服务端状态";
-        task.file=null;
     }catch(error){
-        task.state="取消失败";
-        task.error=error.message;
+        if(error.code!=="UPLOAD_NOT_FOUND"){
+            task.state="取消失败";
+            task.error=error.message;
+            renderTasks();
+            return;
+        }
     }
+    forgetSavedTask(task);
+    task.state="已取消";
+    task.error=task.controller && !task.uploadId ? "请求已停止，请以目录查询结果确认服务端状态" : "";
+    task.file=null;
     renderTasks();
 }
 async function runQueue(){
@@ -140,21 +236,32 @@ async function runQueue(){
             task.state="准备上传";
             renderTasks();
             try{
-                const parent=await resolveParent(task);
+                const parent=task.parentId ?? await resolveParent(task);
                 task.controller.signal.throwIfAborted();
+                if(!task.uploadId && requiresChunkUpload(task.size)){
+                    task.parentId=parent;
+                    rememberTask(task);
+                }
                 await uploadFile(parent,task.file,{
                     task,signal:task.controller.signal,
+                    onInitialized:()=>rememberTask(task),
                     onProgress:(value,state)=>{task.progress=value;task.state=state;renderTasks();}
                 });
                 task.state="完成";
                 task.file=null;
+                forgetSavedTask(task);
                 tasks.splice(tasks.indexOf(task),1);
             }catch(error){
                 if(task.cancelled)await finishCancellation(task);
+                else if(error.code==="UPLOAD_NOT_FOUND" && task.uploadId){
+                    forgetSavedTask(task);
+                    tasks.splice(tasks.indexOf(task),1);
+                    notify("上传任务已不存在，请重新发起上传");
+                }
                 else {task.state="失败";task.error=error.message;}
             }finally{
                 task.controller=null;
-                await context.onUploadComplete(task.target);
+                await context.onUploadComplete(task.refreshTarget ?? task.target);
                 renderTasks();
             }
         }
@@ -171,7 +278,8 @@ function renderTasks(){
     list.replaceChildren(...tasks.map(task=>{
         const row=element("div",undefined,"upload-task");
         const failed=["失败","取消失败"].includes(task.state);
-        const inactive=["排队中","已取消"].includes(task.state);
+        const needsFile=["待续传","待重新上传"].includes(task.state);
+        const inactive=needsFile || ["排队中","已取消"].includes(task.state);
         if(failed)row.classList.add("is-error");
         if(inactive)row.classList.add("is-inactive");
         const icon=element("img",undefined,"upload-task-icon");
@@ -189,10 +297,10 @@ function renderTasks(){
         const transfer=element("div",undefined,"upload-task-transfer");
         const status=element("div",undefined,"upload-task-status");
         status.append(element("span",task.state));
-        if(task.state==="上传分片")status.append(element("span",task.progress+"%","upload-task-percent"));
+        if(["上传分片","待续传"].includes(task.state))status.append(element("span",task.progress+"%","upload-task-percent"));
         const progress=element("progress");
         progress.max=100;
-        if(!["上传中","正在合并","准备上传","取消中"].includes(task.state))progress.value=task.progress;
+        if(!["上传中","正在合并","准备上传","正在检查","取消中"].includes(task.state))progress.value=task.progress;
         progress.setAttribute("aria-label",task.path+" · "+task.state);
         transfer.append(status,progress);
         if(task.error){
@@ -201,6 +309,16 @@ function renderTasks(){
         }
         const actions=element("div",undefined,"upload-task-actions");
         row.append(icon,details,transfer,actions);
+        if(needsFile){
+            const resume=element("button","重新选择文件","text-button");
+            resume.type="button";
+            resume.setAttribute("aria-label","重新选择文件 "+task.path);
+            resume.addEventListener("click",()=>{
+                resumeTarget=task;
+                $("#resume-file-input").click();
+            });
+            actions.append(resume);
+        }
         if(failed){
             const retry=element("button",task.state==="失败"?"重试":"重试取消","text-button");
             retry.type="button";
@@ -211,7 +329,7 @@ function renderTasks(){
             });
             actions.append(retry);
         }
-        if(task.file && !["已取消","完成"].includes(task.state)){
+        if((task.file || task.storageId) && !["正在检查","取消失败","已取消","完成"].includes(task.state)){
             const cancel=element("button","取消","text-button upload-task-cancel");
             cancel.type="button";cancel.disabled=task.state==="取消中";
             cancel.setAttribute("aria-label","取消上传 "+task.path);

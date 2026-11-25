@@ -44,8 +44,8 @@ export async function postFormData(url,formdata,{timeoutMs=15000,signal}={}){
     return Fetch(req,{timeoutMs,signal});
 }
 
-export async function getFetch(url,{timeoutMs=15000,signal}={}){
-    const req=new Request(url,{method:"GET"});
+export async function getFetch(url,{timeoutMs=15000,signal,cache}={}){
+    const req=new Request(url,{method:"GET",cache});
     return Fetch(req,{timeoutMs,signal});
 }
 

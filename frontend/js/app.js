@@ -1,5 +1,5 @@
-import { initFileBrowser, getCurrentDirectory, refreshAfterUpload } from "./features/file-browser.js";
-import { initUpload } from "./features/upload.js";
+import { initFileBrowser, getCurrentDirectory, refreshAfterUpload } from "./features/file-browser.js?v=20261125-5";
+import { initUpload } from "./features/upload.js?v=20261125-4";
 import { initSettings } from "./features/setting.js";
 
 const $=selector=>document.querySelector(selector);
@@ -46,7 +46,7 @@ async function initApp(){
         const profile=await initSettings({onLogout:redirectToLogin});
         document.querySelectorAll(".toolbar button").forEach(button=>button.disabled=false);
         await initFileBrowser(profile.rootId);
-        initUpload({getCurrentDirectory,onUploadComplete:refreshAfterUpload,showView});
+        initUpload({rootId:profile.rootId,getCurrentDirectory,onUploadComplete:refreshAfterUpload,showView});
         $(".user-button").addEventListener("click",()=>showView("settings"));
     }catch(error){
         if(redirecting)return;

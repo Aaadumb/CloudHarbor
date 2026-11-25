@@ -1,4 +1,4 @@
-import { postFormData,postJson,getFetch, deleteFetch } from "./http.js";
+import { postFormData,postJson,getFetch, deleteFetch } from "./http.js?v=20261125-4";
 const chunkSize = 5 * 1024 * 1024;
 export function queryDirectory(id){
     return getFetch("/files/query?id="+String(id));
@@ -26,9 +26,17 @@ export function getDownloadUrl(id){
     return postJson('/files/download',{id:String(id)});
 }
 
-export async function uploadFile(parentId,file,{signal,onProgress=()=>{},task={}}={}){
+export function getChunkUploadStatus(uploadId,options){
+    return getFetch("/files/upload/status?"+new URLSearchParams({uploadId}),{...options,cache:"no-store"});
+}
+
+export function requiresChunkUpload(size){
+    return size>chunkSize;
+}
+
+export async function uploadFile(parentId,file,{signal,onProgress=()=>{},onInitialized=()=>{},task={}}={}){
     const options={signal,timeoutMs:120000};
-    if(file.size<=chunkSize){
+    if(!requiresChunkUpload(file.size)){
         const fd=new FormData();
         fd.set("parentId",parentId);
         fd.set("lastModified",String(file.lastModified));
@@ -43,6 +51,7 @@ export async function uploadFile(parentId,file,{signal,onProgress=()=>{},task={}
             parentId,name:file.name,size:file.size,lastModified:file.lastModified
         },options);
         task.uploadId=result.data.uploadId;
+        onInitialized();
     }
     const complete=async()=>{
         signal?.throwIfAborted();
@@ -61,7 +70,7 @@ export async function uploadFile(parentId,file,{signal,onProgress=()=>{},task={}
     }
     let result;
     try{
-        result=await getFetch("/files/upload/status?"+new URLSearchParams({uploadId:task.uploadId}),options);
+        result=await getChunkUploadStatus(task.uploadId,options);
     }catch(error){
         if(error.code==="UPLOAD_BUSY")return complete();
         throw error;
