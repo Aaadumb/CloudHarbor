@@ -143,6 +143,7 @@ export async function initFileBrowser(userRootId){
     });
     document.addEventListener('click',event=>{if(!event.target.closest('.menu-wrap, #entry-menu, .more-button'))closeMenus();})
     document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenus();});
+    $('.file-list-scroll').addEventListener('scroll',()=>{$('#entry-menu').hidden=true;});
     $('#new-folder').addEventListener('click',()=>{
         startCreateFolder();
     });
@@ -313,6 +314,7 @@ async function loadDirectory(directoryId,breadcrumbs=state.breadcrumbs,isRefresh
         else history.replaceState(snapshot,"",url);
     }
     renderDirectory(isRefresh);
+    if(!isRefresh) $('.file-list-scroll').scrollTop=0;
     return true;
 }
 

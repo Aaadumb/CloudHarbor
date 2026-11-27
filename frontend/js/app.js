@@ -1,4 +1,4 @@
-import { initFileBrowser, getCurrentDirectory, refreshAfterUpload } from "./features/file-browser.js?v=20261125-5";
+import { initFileBrowser, getCurrentDirectory, refreshAfterUpload } from "./features/file-browser.js?v=20261127-2";
 import { initUpload } from "./features/upload.js?v=20261125-4";
 import { initSettings } from "./features/setting.js";
 

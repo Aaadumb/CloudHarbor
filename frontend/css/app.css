@@ -1,12 +1,22 @@
+html {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 body {
     margin: 0;
     min-width: 280px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     color: var(--text);
     background: #fff;
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif
 }
 .app-header{
     height: 66px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -77,8 +87,10 @@ body {
 
 .app-shell{
     display: grid;
+    flex: 1;
+    min-height: 0;
     grid-template-columns: 208px minmax(0,1fr);
-    min-height: calc(100vh - 66px);
+    grid-template-rows: minmax(0, 1fr);
 }
 
 .sidebar {
@@ -112,8 +124,30 @@ body {
 .nav-button:hover { background: #e6eef8; }
 
 .main {
+    position: relative;
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     padding: 24px 28px;
+    overflow: auto;
+}
+
+#view-home {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.toolbar, .path-row, .table-footer {
+    flex-shrink: 0;
+}
+
+.file-list-scroll {
+    position: relative;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .toolbar {
@@ -215,6 +249,9 @@ body {
 .file-table col:nth-child(6){ width: 130px; }
 
 .file-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     height: 39px;
     background: var(--page-bg);
     font-weight: 550;
@@ -653,8 +690,8 @@ dialog::backdrop { background:#17223580 }
     .brand { font-size: 19px }
     .brand .icon { width: 32px; }
     .app-shell {
-        display: block;
-        min-height: calc(100vh - 58px);
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
     }
     .sidebar {
         flex-direction: row;

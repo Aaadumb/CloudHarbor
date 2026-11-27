@@ -10,7 +10,7 @@
     
     <link rel="stylesheet" href="css/base.css">
     <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/app.css?v=20261125-1">
+    <link rel="stylesheet" href="css/app.css?v=20261127-2">
     <title>CloudHarbor · 文件管理首页</title> 
 </head>
 <body>
@@ -71,47 +71,49 @@
                         返回上一级
                     </button>
                 </div>
-                <table class="file-table">
-                    <caption class="sr-only">当前目录的文件与文件夹</caption>
-                    <colgroup>
-                        <col>
-                        <col>
-                        <col>
-                        <col>
-                        <col>
-                        <col>
-                    </colgroup>
-                    <thead>
+                <div class="file-list-scroll" role="region" aria-label="文件列表" tabindex="0">
+                    <table class="file-table">
+                        <caption class="sr-only">当前目录的文件与文件夹</caption>
+                        <colgroup>
+                            <col>
+                            <col>
+                            <col>
+                            <col>
+                            <col>
+                            <col>
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th scope="col"><input id="select-all" type="checkbox" aria-label="全选当前目录"></th>
+                                <th scope="col">名称</th>
+                                <th scope="col">大小</th>
+                                <th scope="col" class="type-cell">类型</th>
+                                <th scope="col" class="time-cell">修改时间</th>
+                                <th scope="col"><span class="sr-only">操作</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="file-list"></tbody>
+                        <tbody id="directory-loading" aria-hidden="true" hidden></tbody>
+                    </table>
+                    <template id="directory-skeleton-row">
                         <tr>
-                            <th scope="col"><input id="select-all" type="checkbox" aria-label="全选当前目录"></th>
-                            <th scope="col">名称</th>
-                            <th scope="col">大小</th>
-                            <th scope="col" class="type-cell">类型</th>
-                            <th scope="col" class="time-cell">修改时间</th>
-                            <th scope="col"><span class="sr-only">操作</span></th>
+                            <td><span class="skeleton-bar skeleton-check"></span></td>
+                            <td><div class="file-name">
+                                <span class="skeleton-bar skeleton-icon"></span>
+                                <span class="skeleton-bar skeleton-name"></span>
+                            </div></td>
+                            <td><span class="skeleton-bar"></span></td>
+                            <td class="type-cell"><span class="skeleton-bar"></span></td>
+                            <td class="time-cell"><span class="skeleton-bar skeleton-time"></span></td>
+                            <td></td>
                         </tr>
-                    </thead>
-                    <tbody id="file-list"></tbody>
-                    <tbody id="directory-loading" aria-hidden="true" hidden></tbody>
-                </table>
-                <template id="directory-skeleton-row">
-                    <tr>
-                        <td><span class="skeleton-bar skeleton-check"></span></td>
-                        <td><div class="file-name">
-                            <span class="skeleton-bar skeleton-icon"></span>
-                            <span class="skeleton-bar skeleton-name"></span>
-                        </div></td>
-                        <td><span class="skeleton-bar"></span></td>
-                        <td class="type-cell"><span class="skeleton-bar"></span></td>
-                        <td class="time-cell"><span class="skeleton-bar skeleton-time"></span></td>
-                        <td></td>
-                    </tr>
-                </template>
-                <span id="directory-status" class="sr-only" role="status"></span>
-                <div id="directory-empty" class="empty-state" hidden>
-                    <img src="assets/icons/folder.svg" class="icon" aria-hidden="true">
-                    <h2>此文件夹为空</h2>
-                    <p class="muted">可以上传文件或新建文件夹</p>
+                    </template>
+                    <span id="directory-status" class="sr-only" role="status"></span>
+                    <div id="directory-empty" class="empty-state" hidden>
+                        <img src="assets/icons/folder.svg" class="icon" aria-hidden="true">
+                        <h2>此文件夹为空</h2>
+                        <p class="muted">可以上传文件或新建文件夹</p>
+                    </div>
                 </div>
                 <div class="table-footer">
                     <span id="file-count"></span>
@@ -279,6 +281,6 @@
     </dialog>
     <!-- <div class="toast-region" role="status" aria-live="polite" hidden></div> -->
     <div class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="js/app.js?v=20261125-5"></script>
+    <script type="module" src="js/app.js?v=20261127-2"></script>
 </body>
 </html>
